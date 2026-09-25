@@ -7,6 +7,12 @@ function App() {
   const [balanceUSDT, setBalanceUSDT] = useState(250.00);
   const [tokensRDV, setTokensRDV] = useState(120);
 
+  // Estado de tokens y dividendos
+  const [myTokens, setMyTokens] = useState([
+    { id: 1, title: 'El Hombre de Vitruvio 2.0', quantity: 80, valueUSDT: 160, dividendsUSDT: 12.50 },
+    { id: 2, title: 'Códice Atlántico Digital', quantity: 40, valueUSDT: 80, dividendsUSDT: 6.20 },
+  ]);
+
   const handleConnectWallet = () => {
     if (!walletConnected) {
       setWalletConnected(true);
@@ -14,6 +20,17 @@ function App() {
     } else {
       setWalletConnected(false);
       setWalletAddress('');
+    }
+  };
+
+  const handleClaimDividends = () => {
+    const totalDividends = myTokens.reduce((acc, curr) => acc + curr.dividendsUSDT, 0);
+    if (totalDividends > 0) {
+      setBalanceUSDT(balanceUSDT + totalDividends);
+      setMyTokens(myTokens.map(t => ({ ...t, dividendsUSDT: 0 })));
+      alert(`¡Has retirado $${totalDividends.toFixed(2)} USDT de dividendos a tu balance!`);
+    } else {
+      alert('No tienes dividendos acumulados para retirar en este momento.');
     }
   };
 
@@ -73,7 +90,7 @@ function App() {
             </div>
             <div className="flex gap-2">
               <button 
-                onClick={() => setActiveTab('replicas')}
+                onClick={() => setActiveTab('contratos')}
                 className="bg-black/50 text-white text-[11px] px-3 py-1.5 rounded-lg border border-white/30 hover:bg-black"
               >
                 Ver Réplicas
@@ -172,7 +189,44 @@ function App() {
                 </div>
               )}
 
-              {activeTab !== 'wallet' && (
+              {activeTab === 'tokens' && (
+                <div>
+                  <h2 className="text-xl font-bold text-[#f3e5ab] mb-2">📜 Mis Tokens & Dividendos</h2>
+                  <p className="text-xs text-gray-300 mb-4">Portafolio de obras tokenizadas de las que eres copropietario.</p>
+
+                  <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
+                    {myTokens.map((item) => (
+                      <div key={item.id} className="bg-black/50 p-3 rounded-xl border border-white/10 flex justify-between items-center text-xs">
+                        <div>
+                          <p className="font-bold text-white text-sm">{item.title}</p>
+                          <p className="text-gray-400 mt-0.5">{item.quantity} Tokens | Valor estimado: ${item.valueUSDT} USDT</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-[#4ade80] font-mono font-bold">+${item.dividendsUSDT.toFixed(2)} USDT</p>
+                          <p className="text-[10px] text-gray-400">Dividendo pendiente</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="mt-4 pt-3 border-t border-white/10 flex justify-between items-center">
+                    <div>
+                      <p className="text-[11px] text-gray-400">Total Dividendos:</p>
+                      <p className="text-base font-mono font-bold text-[#4ade80]">
+                        ${myTokens.reduce((acc, curr) => acc + curr.dividendsUSDT, 0).toFixed(2)} USDT
+                      </p>
+                    </div>
+                    <button 
+                      onClick={handleClaimDividends}
+                      className="bg-[#f3e5ab] text-black font-bold px-4 py-2 rounded-xl hover:bg-white transition text-xs"
+                    >
+                      Cobrar Dividendos
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {['contratos', 'galeria', 'grupos', 'votacion'].includes(activeTab) && (
                 <div className="text-center py-6">
                   <h2 className="text-lg font-bold text-[#f3e5ab] capitalize">{activeTab}</h2>
                   <p className="text-xs text-gray-300 mt-2">Módulo listo para conectar la siguiente función.</p>

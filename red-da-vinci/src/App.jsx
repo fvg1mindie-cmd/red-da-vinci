@@ -1,98 +1,96 @@
 import React from 'react';
 
-export default function App() {
+function App() {
   return (
-    <div className="relative w-full h-screen bg-neutral-950 text-amber-100 flex flex-col justify-between overflow-hidden">
-      
-      {/* 🏛️ ARCO SUPERIOR: Banner del Pozo Cooperativo */}
-      <header className="w-full bg-amber-950/80 border-b border-amber-600/40 p-4 text-center z-20 shadow-lg">
-        <h1 className="text-2xl font-serif tracking-widest text-amber-400 font-bold">RED DA VINCI</h1>
-        <p className="text-xs text-amber-200/80 uppercase tracking-wider">Cooperativa de Arte Universal Tokenizada</p>
-        <div className="mt-2 text-sm bg-black/40 py-1 px-4 rounded-full inline-block border border-amber-500/30">
-          Pozo Cooperativo Acumulado (5%): <span className="font-bold text-green-400">$45,280 USDT</span> | Próximo Sorteo: <span className="text-amber-300">12d 04h</span>
-        </div>
-      </header>
+    <div className="min-h-screen bg-[#121212] text-[#d4af37] font-serif relative flex flex-col justify-between p-4 overflow-hidden">
+      {/* Fondo Ilustrado Renacentista */}
+      <div 
+        className="absolute inset-0 z-0 bg-center bg-cover bg-no-repeat opacity-40 pointer-events-none"
+        style={{ backgroundImage: `url('/lo1.jpg')` }}
+      ></div>
 
-      {/* 🖼️ LIENZO CENTRAL Y COLUMNAS */}
-      <main className="relative flex-1 flex justify-between items-center p-6 gap-4">
-        
-        {/* 🔘 COLUMNA IZQUIERDA: Finanzas y Perfil */}
-        <aside className="w-1/4 flex flex-col gap-4 z-10">
-          <button className="bg-amber-950/60 border border-amber-600/40 hover:bg-amber-900/80 p-4 rounded-xl text-left transition shadow-md group">
-            <span className="block text-lg font-bold text-amber-300 group-hover:translate-x-1 transition-transform">👤 Perfil / Wallet</span>
-            <span className="text-xs text-amber-200/60">Gestiona tu identidad y fondos</span>
-          </button>
-          
-          <button className="bg-amber-950/60 border border-amber-600/40 hover:bg-amber-900/80 p-4 rounded-xl text-left transition shadow-md group">
-            <span className="block text-lg font-bold text-amber-300 group-hover:translate-x-1 transition-transform">🪙 Mis Tokens</span>
-            <span className="text-xs text-amber-200/60">Obras adquiridas y dividendos</span>
-          </button>
+      {/* Capa de Contenido */}
+      <div className="relative z-10 flex flex-col justify-between min-h-screen">
+        {/* Encabezado Superior */}
+        <header className="text-center py-6 bg-[#121212]/80 backdrop-blur-md border-b border-[#d4af37]/30 rounded-xl shadow-lg">
+          <h1 className="text-4xl md:text-5xl font-bold tracking-widest text-[#d4af37] drop-shadow-md">
+            RED DA VINCI
+          </h1>
+          <p className="text-lg md:text-xl text-[#e5c158] mt-1 font-light">
+            Cooperativa de Arte Universal Tokenizada
+          </p>
+          <div className="mt-3 inline-block bg-[#1c1c1c]/90 px-6 py-2 rounded-full border border-[#d4af37]/40">
+            <span className="text-sm text-gray-300">Pozo Cooperativo Acumulado (5%): </span>
+            <span className="text-lg font-mono font-bold text-[#4ade80]">$45,280 USDT</span>
+            <span className="text-sm text-gray-400 ml-4">Próximo Sorteo: 12d 04h</span>
+          </div>
+        </header>
 
-          <button className="bg-amber-950/60 border border-amber-600/40 hover:bg-amber-900/80 p-4 rounded-xl text-left transition shadow-md group">
-            <span className="block text-lg font-bold text-amber-300 group-hover:translate-x-1 transition-transform">📜 Contratos & Réplicas</span>
-            <span className="text-xs text-amber-200/60">Exhibiciones físicas e itinerancia</span>
-          </button>
-        </aside>
+        {/* Panel Central con Botones Flotantes / Interactivos */}
+        <main className="grid grid-cols-1 md:grid-cols-3 gap-6 my-auto py-8">
+          {/* Columna Izquierda */}
+          <div className="flex flex-col gap-4">
+            <button className="bg-[#1c1c1c]/80 backdrop-blur-md p-4 rounded-xl border border-[#d4af37]/40 hover:border-[#d4af37] text-left shadow-lg transition">
+              <h3 className="text-lg font-bold text-[#d4af37]">👤 Perfil / Wallet</h3>
+              <p className="text-xs text-gray-300">Gestiona tu identidad y fondos</p>
+            </button>
+            <button className="bg-[#1c1c1c]/80 backdrop-blur-md p-4 rounded-xl border border-[#d4af37]/40 hover:border-[#d4af37] text-left shadow-lg transition">
+              <h3 className="text-lg font-bold text-[#d4af37]">📜 Mis Tokens</h3>
+              <p className="text-xs text-gray-300">Obras adquiridas y dividendos</p>
+            </button>
+            <button className="bg-[#1c1c1c]/80 backdrop-blur-md p-4 rounded-xl border border-[#d4af37]/40 hover:border-[#d4af37] text-left shadow-lg transition">
+              <h3 className="text-lg font-bold text-[#d4af37]">📜 Contratos & Réplicas</h3>
+              <p className="text-xs text-gray-300">Exhibiciones físicas e itinerancia</p>
+            </button>
+          </div>
 
-        {/* 🎨 CENTRO: Muro Interactivo sobre el marco histórico */}
-        <section className="relative flex-1 h-full border border-amber-600/30 rounded-2xl overflow-hidden flex flex-col items-center justify-center bg-black/60 shadow-2xl">
-          
-          {/* Muro / Feed interactivo pasante */}
-          <div className="relative z-10 w-full h-full p-6 overflow-y-auto space-y-6">
-            <div className="bg-amber-950/40 border border-amber-500/20 p-6 rounded-xl backdrop-blur-sm">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 rounded-full bg-amber-600/40 border border-amber-400 flex items-center justify-center font-bold">A1</div>
-                <div>
-                  <h4 className="font-bold text-amber-200">Artista Destacado</h4>
-                  <p className="text-xs text-amber-400/60">Publicado hace 2 horas</p>
-                </div>
-              </div>
-              <div className="w-full h-48 bg-black/40 rounded-lg mb-4 border border-amber-500/10 flex items-center justify-center text-amber-300/40 italic">
-                [ Espacio de Exhibición de Obra ]
-              </div>
-              <div className="flex justify-between items-center text-sm">
-                <span>Estado: <strong className="text-amber-400">60% Tokenizado</strong></span>
-                <div className="space-x-2">
-                  <button className="px-3 py-1 bg-amber-800/60 hover:bg-amber-700 rounded-lg text-xs">Ver Réplicas</button>
-                  <button className="px-3 py-1 bg-amber-600 hover:bg-amber-500 text-black font-bold rounded-lg text-xs">Comprar Token</button>
-                </div>
-              </div>
+          {/* Espacio Central para destacar la ilustración */}
+          <div className="flex flex-col items-center justify-end text-center p-6 bg-[#121212]/60 backdrop-blur-sm rounded-xl border border-[#d4af37]/20 shadow-2xl">
+            <span className="text-xs uppercase tracking-widest text-gray-400">Artista Destacado</span>
+            <p className="text-sm text-gray-300 mt-1">Publicado hace 2 horas</p>
+            <div className="my-6 p-4 border border-dashed border-[#d4af37]/40 rounded-lg">
+              <p className="italic text-sm text-gray-300">[ Espacio de Exhibición de Obra ]</p>
+              <p className="text-xs text-[#4ade80] font-semibold mt-2">Estado: 60% Tokenizado</p>
+            </div>
+            <div className="flex gap-3">
+              <button className="bg-[#2c2c2c] text-white text-xs px-4 py-2 rounded-lg border border-gray-600 hover:bg-[#3c3c3c]">
+                Ver Réplicas
+              </button>
+              <button className="bg-[#d4af37] text-black font-bold text-xs px-4 py-2 rounded-lg hover:bg-[#e5c158]">
+                Comprar Token
+              </button>
             </div>
           </div>
-        </section>
 
-        {/* 🔘 COLUMNA DERECHA: Galería y Comunidad */}
-        <aside className="w-1/4 flex flex-col gap-4 z-10">
-          <button className="bg-amber-950/60 border border-amber-600/40 hover:bg-amber-900/80 p-4 rounded-xl text-right transition shadow-md group">
-            <span className="block text-lg font-bold text-amber-300 group-hover:-translate-x-1 transition-transform">🖼️ Galería / Mercado</span>
-            <span className="text-xs text-amber-200/60">Catálogo global de obras</span>
+          {/* Columna Derecha */}
+          <div className="flex flex-col gap-4">
+            <button className="bg-[#1c1c1c]/80 backdrop-blur-md p-4 rounded-xl border border-[#d4af37]/40 hover:border-[#d4af37] text-left shadow-lg transition">
+              <h3 className="text-lg font-bold text-[#d4af37]">🖼️ Galería / Mercado</h3>
+              <p className="text-xs text-gray-300">Catálogo global de obras</p>
+            </button>
+            <button className="bg-[#1c1c1c]/80 backdrop-blur-md p-4 rounded-xl border border-[#d4af37]/40 hover:border-[#d4af37] text-left shadow-lg transition">
+              <h3 className="text-lg font-bold text-[#d4af37]">👥 Grupos & Colectivos</h3>
+              <p className="text-xs text-gray-300">Debates y proyectos en red</p>
+            </button>
+            <button className="bg-[#1c1c1c]/80 backdrop-blur-md p-4 rounded-xl border border-[#d4af37]/40 hover:border-[#d4af37] text-left shadow-lg transition">
+              <h3 className="text-lg font-bold text-[#d4af37]">🏛️ Votación Cooperativa</h3>
+              <p className="text-xs text-gray-300">Decisiones comunitarias</p>
+            </button>
+          </div>
+        </main>
+
+        {/* Barra de Navegación Inferior */}
+        <footer className="flex justify-around items-center py-3 bg-[#121212]/90 backdrop-blur-md border-t border-[#d4af37]/30 rounded-xl">
+          <button className="text-sm font-semibold text-[#d4af37]">🏠 Feed</button>
+          <button className="text-sm font-semibold text-gray-300 hover:text-[#d4af37]">🔍 Explorar</button>
+          <button className="bg-[#d4af37] text-black font-bold px-4 py-2 rounded-full text-sm shadow-md hover:bg-[#e5c158]">
+            ➕ Tokenizar Obra
           </button>
-
-          <button className="bg-amber-950/60 border border-amber-600/40 hover:bg-amber-900/80 p-4 rounded-xl text-right transition shadow-md group">
-            <span className="block text-lg font-bold text-amber-300 group-hover:-translate-x-1 transition-transform">👥 Grupos & Colectivos</span>
-            <span className="text-xs text-amber-200/60">Debates y proyectos en red</span>
-          </button>
-
-          <button className="bg-amber-950/60 border border-amber-600/40 hover:bg-amber-900/80 p-4 rounded-xl text-right transition shadow-md group">
-            <span className="block text-lg font-bold text-amber-300 group-hover:-translate-x-1 transition-transform">🏛️ Votación Cooperativa</span>
-            <span className="text-xs text-amber-200/60">Decisiones comunitarias</span>
-          </button>
-        </aside>
-
-      </main>
-
-      {/* 🔽 BARRA INFERIOR: Navegación Rápida */}
-      <footer className="w-full bg-amber-950/90 border-t border-amber-600/40 p-3 flex justify-around items-center z-20">
-        <button className="hover:text-amber-300 font-medium transition">🏠 Feed</button>
-        <button className="hover:text-amber-300 font-medium transition">🔍 Explorar</button>
-        
-        <button className="bg-amber-600 hover:bg-amber-500 text-black font-bold px-6 py-2 rounded-full shadow-lg transform hover:scale-105 transition">
-          ➕ Tokenizar Obra
-        </button>
-
-        <button className="hover:text-amber-300 font-medium transition">💬 Mensajes</button>
-      </footer>
-
+          <button className="text-sm font-semibold text-gray-300 hover:text-[#d4af37]">💬 Mensajes</button>
+        </footer>
+      </div>
     </div>
   );
 }
+
+export default App;

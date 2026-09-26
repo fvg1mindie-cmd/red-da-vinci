@@ -8,18 +8,18 @@ function App() {
   const [balanceUSDT, setBalanceUSDT] = useState(250.00);
   const [tokensRDV, setTokensRDV] = useState(120);
 
-  // Perfil del Usuario Actual
+  // Perfil del Usuario Actual (Dinámico)
   const [currentUser, setCurrentUser] = useState({
     name: 'Diego Da Vinci',
     username: 'diego_art',
     bio: 'Artista digital y gestor cultural Web3.',
     portfolioUrl: 'https://reddavinci.com/diego_art',
     rank: '#4 Global',
-    curated: true, // Si es false, no puede tokenizar ni entrar al pozo
+    curated: true,
     poolEligible: true,
   });
 
-  // Estado del Formulario de Registro / Edición de Perfil
+  // Estado del Formulario de Registro
   const [registerForm, setRegisterForm] = useState({
     name: '',
     username: '',
@@ -43,15 +43,6 @@ function App() {
       time: 'Hace 2 horas',
       content: 'Estudio de iluminación para la nueva obra. Rendimiento estimado para inversores: 14% anual por alquileres e itinerancia física.',
       workLinked: { id: 101, title: 'Gioconda Sintética #1', type: 'fractional', tokenPrice: 5.00, APY: '14% Anual', isTokenized: true }
-    },
-    {
-      id: 2,
-      artistName: 'Colectivo Sombra',
-      rank: 'Comunidad',
-      curated: false,
-      time: 'Hace 3 horas',
-      content: 'Comparto un boceto rápido de mi última escultura en progreso. ¡Cualquier comentario es bienvenido!',
-      workLinked: { id: 103, title: 'Boceto de Escultura', type: 'showcase', tokenPrice: 0, APY: 'N/A', isTokenized: false }
     }
   ]);
 
@@ -97,9 +88,8 @@ function App() {
     e.preventDefault();
     if (!newPostContent) return;
 
-    // Validación: Si intenta tokenizar pero no está curado
     if (wantsToTokenize && !currentUser.curated) {
-      alert('⚠️ Para tokenizar tus obras y vender participaciones, debes solicitar la revisión del Comité Curador desde tu Perfil.');
+      alert('⚠️ Para tokenizar tus obras y vender participaciones, debes solicitar la revisión del Comité Curador.');
       return;
     }
 
@@ -146,29 +136,13 @@ function App() {
       bio: registerForm.bio || 'Nuevo miembro de la Red Da Vinci.',
       portfolioUrl: registerForm.portfolioUrl || '',
       rank: isArtist ? 'Comunidad' : 'N/A',
-      curated: false, // Inicia libre (no curado)
+      curated: false, 
       poolEligible: false,
     });
 
     setUserRole(registerForm.roleRequested);
-
-    if (isArtist) {
-      setArtists([...artists, {
-        id: Date.now(),
-        name: registerForm.name,
-        rank: 'Comunidad',
-        curated: false,
-        APY: 'En revisión',
-        isSubscribed: false
-      }]);
-    }
-
     setActiveTab('home');
-    alert(`¡Perfil libre creado! Puedes publicar obras en la comunidad. Si deseas tokenizarlas, solicita la verificación curatorial.`);
-  };
-
-  const handleRequestCurativeReview = () => {
-    alert('📩 Solicitud enviada al Comité Curador. Evaluaremos tu portafolio en un lapso de 48 hs.');
+    alert(`¡Bienvenido ${registerForm.name}! Perfil creado con éxito.`);
   };
 
   return (
@@ -209,19 +183,13 @@ function App() {
                 <div>
                   <h4 className="font-bold text-xs text-[#f3e5ab]">{currentUser.name}</h4>
                   <span className={`text-[9px] px-1.5 py-0.5 rounded-full border ${currentUser.curated ? 'bg-green-950/60 text-green-300 border-green-500/40' : 'bg-gray-800 text-gray-300 border-gray-600'}`}>
-                    {currentUser.curated ? '✓ Artista Curado (Habilitado Web3)' : '🌐 Perfil Libre (Comunidad)'}
+                    {currentUser.curated ? '✓ Artista Curado' : '🌐 Perfil Libre'}
                   </span>
                 </div>
               </div>
               <div className="mt-2 pt-1.5 border-t border-white/10 text-[10px] space-y-1 text-gray-200">
                 <p>Ranking: <b className="text-[#f3e5ab]">{currentUser.rank}</b></p>
-                <p>Apto Pozo Cooperativo: <b className={currentUser.poolEligible ? "text-green-400" : "text-gray-400"}>{currentUser.poolEligible ? "SI" : "Requiere Curaduría"}</b></p>
-                
-                {!currentUser.curated && (
-                  <button onClick={handleRequestCurativeReview} className="mt-1 w-full bg-[#f3e5ab]/20 border border-[#f3e5ab] text-[#f3e5ab] py-1 rounded text-[9px] hover:bg-[#f3e5ab] hover:text-black transition cursor-pointer">
-                    Solicitar Verificación para Tokenizar
-                  </button>
-                )}
+                <p>Apto Pozo: <b className={currentUser.poolEligible ? "text-green-400" : "text-gray-400"}>{currentUser.poolEligible ? "SI" : "Requiere Curaduría"}</b></p>
               </div>
             </div>
 
@@ -255,14 +223,14 @@ function App() {
                     <input type="text" placeholder="Nombre de la obra (opcional)" value={newWorkTitle} onChange={(e) => setNewWorkTitle(e.target.value)} className="w-full bg-black/30 border border-white/20 p-1 rounded text-white" />
                     
                     {newWorkTitle && (
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <label className="flex items-center gap-1 text-[10px] text-[#f3e5ab] cursor-pointer">
                           <input 
                             type="checkbox" 
                             checked={wantsToTokenize} 
                             onChange={(e) => setWantsToTokenize(e.target.checked)} 
                           />
-                          ¿Deseas tokenizar esta obra para venta/financiamiento?
+                          ¿Tokenizar obra?
                         </label>
                         
                         {wantsToTokenize && (
@@ -350,10 +318,9 @@ function App() {
             <div className="bg-[#121212]/90 border border-[#f3e5ab]/40 rounded-xl p-5 max-w-md w-full text-white relative">
               <button onClick={() => setActiveTab('home')} className="absolute top-2 right-3 text-gray-400 hover:text-white cursor-pointer">✕</button>
               
-              {/* Modal de Registro / Perfil */}
               {activeTab === 'register' && (
                 <div>
-                  <h3 className="font-bold text-[#f3e5ab] mb-2 text-sm">📝 Crear / Editar Perfil</h3>
+                  <h3 className="font-bold text-[#f3e5ab] mb-2 text-sm">📝 Crear Perfil</h3>
                   <form onSubmit={handleRegisterSubmit} className="space-y-2 text-xs">
                     <div>
                       <label className="text-gray-300 text-[10px] block mb-0.5">Tipo de Perfil:</label>
@@ -362,54 +329,32 @@ function App() {
                         onChange={(e) => setRegisterForm({...registerForm, roleRequested: e.target.value})}
                         className="w-full bg-black border border-white/20 p-1.5 rounded text-white text-xs"
                       >
-                        <option value="artist">🎨 Artista (Publicar obras y portafolio)</option>
-                        <option value="buyer">💎 Comprador / Inversor (Coleccionar y Recibir Dividendos)</option>
+                        <option value="artist">🎨 Artista</option>
+                        <option value="buyer">💎 Comprador / Inversor</option>
                       </select>
                     </div>
                     <div>
-                      <label className="text-gray-300 text-[10px] block mb-0.5">Nombre Completo o Colectivo:</label>
+                      <label className="text-gray-300 text-[10px] block mb-0.5">Nombre Completo:</label>
                       <input 
                         type="text" 
-                        placeholder="Ej: Sofía Da Vinci" 
+                        placeholder="Ej: Leonardo" 
                         value={registerForm.name}
                         onChange={(e) => setRegisterForm({...registerForm, name: e.target.value})}
                         className="w-full bg-black/50 border border-white/20 p-1.5 rounded text-white"
                       />
                     </div>
                     <div>
-                      <label className="text-gray-300 text-[10px] block mb-0.5">Nombre de Usuario (@):</label>
+                      <label className="text-gray-300 text-[10px] block mb-0.5">Usuario (@):</label>
                       <input 
                         type="text" 
-                        placeholder="Ej: sofia_art" 
+                        placeholder="Ej: leo_art" 
                         value={registerForm.username}
                         onChange={(e) => setRegisterForm({...registerForm, username: e.target.value})}
                         className="w-full bg-black/50 border border-white/20 p-1.5 rounded text-white"
                       />
                     </div>
-                    <div>
-                      <label className="text-gray-300 text-[10px] block mb-0.5">Biografía / Presentación:</label>
-                      <textarea 
-                        rows="2"
-                        placeholder="Cuéntale a la comunidad sobre tu arte..." 
-                        value={registerForm.bio}
-                        onChange={(e) => setRegisterForm({...registerForm, bio: e.target.value})}
-                        className="w-full bg-black/50 border border-white/20 p-1.5 rounded text-white"
-                      />
-                    </div>
-                    {registerForm.roleRequested === 'artist' && (
-                      <div>
-                        <label className="text-gray-300 text-[10px] block mb-0.5">Enlace a Portafolio / Redes (Para Curaduría Futura):</label>
-                        <input 
-                          type="url" 
-                          placeholder="https://instagram.com/tu_arte" 
-                          value={registerForm.portfolioUrl}
-                          onChange={(e) => setRegisterForm({...registerForm, portfolioUrl: e.target.value})}
-                          className="w-full bg-black/50 border border-white/20 p-1.5 rounded text-white"
-                        />
-                      </div>
-                    )}
                     <button type="submit" className="w-full bg-[#f3e5ab] text-black font-bold py-2 rounded text-xs hover:bg-white transition cursor-pointer mt-2">
-                      Crear Perfil Libre
+                      Registrarse
                     </button>
                   </form>
                 </div>
@@ -419,7 +364,6 @@ function App() {
                 <div>
                   <h3 className="font-bold text-[#f3e5ab] mb-2">👤 Mi Billetera Web3</h3>
                   <p className="text-xs text-gray-300">Saldo actual: <b className="text-[#4ade80]">${balanceUSDT.toFixed(2)} USDT</b></p>
-                  <p className="text-[10px] text-gray-400 mt-1">Dirección: {walletConnected ? walletAddress : 'No conectada'}</p>
                   <button onClick={handleConnectWallet} className="mt-3 w-full bg-[#f3e5ab] text-black font-bold py-1.5 rounded text-xs hover:bg-white transition cursor-pointer">
                     {walletConnected ? 'Desconectar Wallet' : 'Conectar Metamask'}
                   </button>

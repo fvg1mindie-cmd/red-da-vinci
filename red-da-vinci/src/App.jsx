@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Eye, EyeOff } from 'lucide-react';
 import { supabase } from './supabaseClient';
 
 function App() {
@@ -9,7 +10,7 @@ function App() {
   const [balanceUSDT, setBalanceUSDT] = useState(250.00); // Simulado hasta definir blockchain/DeFi
 
   const [session, setSession] = useState(null);
-  const [currentUser, setCurrentUser] = useState(null); // perfil real (tabla profiles)
+  const [currentUser, setCurrentUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
 
   const [registerForm, setRegisterForm] = useState({
@@ -24,6 +25,11 @@ function App() {
 
   const [loginForm, setLoginForm] = useState({ email: '', password: '' });
 
+  // Visibilidad de contraseñas
+  const [showRegPassword, setShowRegPassword] = useState(false);
+  const [showRegConfirm, setShowRegConfirm] = useState(false);
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
+
   const [artists, setArtists] = useState([]);
   const [posts, setPosts] = useState([]);
   const [myTokens, setMyTokens] = useState([]);
@@ -35,7 +41,6 @@ function App() {
   const [tokenTypeSelection, setTokenTypeSelection] = useState('fractional');
   const [newWorkPrice, setNewWorkPrice] = useState(10);
 
-  // --- Sesión y perfil ---
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
@@ -72,7 +77,6 @@ function App() {
     setAuthLoading(false);
   };
 
-  // --- Datos públicos ---
   useEffect(() => {
     loadPosts();
     loadArtists();
@@ -222,30 +226,24 @@ function App() {
       return;
     }
 
+    // Pasamos los datos como metadata: el trigger de la base de datos
+    // se encarga de crear la fila en "profiles" automáticamente.
     const { data, error } = await supabase.auth.signUp({
       email: registerForm.email,
-      password: registerForm.password
+      password: registerForm.password,
+      options: {
+        data: {
+          name: registerForm.name,
+          username: registerForm.username,
+          bio: registerForm.bio || 'Artista de la Red Da Vinci.',
+          role: registerForm.roleRequested
+        }
+      }
     });
 
     if (error) {
       alert('Error al crear la cuenta: ' + error.message);
       return;
-    }
-
-    if (data.user) {
-      const { error: profileError } = await supabase.from('profiles').insert({
-        id: data.user.id,
-        name: registerForm.name,
-        username: registerForm.username,
-        bio: registerForm.bio || 'Artista de la Red Da Vinci.',
-        role: registerForm.roleRequested,
-        curated: false
-      });
-
-      if (profileError) {
-        alert('Cuenta creada, pero hubo un error guardando el perfil: ' + profileError.message);
-        console.error(profileError);
-      }
     }
 
     setActiveTab('home');
@@ -545,11 +543,39 @@ function App() {
                     <div className="grid grid-cols-2 gap-2">
                       <div>
                         <label className="text-gray-300 text-[10px] block mb-0.5">Contraseña:</label>
-                        <input type="password" value={registerForm.password} onChange={(e) => setRegisterForm({...registerForm, password: e.target.value})} className="w-full bg-black/50 border border-white/20 p-1.5 rounded text-white" />
+                        <div className="relative">
+                          <input
+                            type={showRegPassword ? 'text' : 'password'}
+                            value={registerForm.password}
+                            onChange={(e) => setRegisterForm({...registerForm, password: e.target.value})}
+                            className="w-full bg-black/50 border border-white/20 p-1.5 pr-7 rounded text-white"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowRegPassword(!showRegPassword)}
+                            className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#f3e5ab] cursor-pointer"
+                          >
+                            {showRegPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                          </button>
+                        </div>
                       </div>
                       <div>
                         <label className="text-gray-300 text-[10px] block mb-0.5">Confirmar:</label>
-                        <input type="password" value={registerForm.confirmPassword} onChange={(e) => setRegisterForm({...registerForm, confirmPassword: e.target.value})} className="w-full bg-black/50 border border-white/20 p-1.5 rounded text-white" />
+                        <div className="relative">
+                          <input
+                            type={showRegConfirm ? 'text' : 'password'}
+                            value={registerForm.confirmPassword}
+                            onChange={(e) => setRegisterForm({...registerForm, confirmPassword: e.target.value})}
+                            className="w-full bg-black/50 border border-white/20 p-1.5 pr-7 rounded text-white"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowRegConfirm(!showRegConfirm)}
+                            className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#f3e5ab] cursor-pointer"
+                          >
+                            {showRegConfirm ? <EyeOff size={14} /> : <Eye size={14} />}
+                          </button>
+                        </div>
                       </div>
                     </div>
                     <button type="submit" className="w-full bg-[#f3e5ab] text-black font-bold py-2 rounded text-xs hover:bg-white transition cursor-pointer mt-2">
@@ -569,7 +595,21 @@ function App() {
                     </div>
                     <div>
                       <label className="text-gray-300 text-[10px] block mb-0.5">Contraseña:</label>
-                      <input type="password" value={loginForm.password} onChange={(e) => setLoginForm({...loginForm, password: e.target.value})} className="w-full bg-black/50 border border-white/20 p-1.5 rounded text-white" />
+                      <div className="relative">
+                        <input
+                          type={showLoginPassword ? 'text' : 'password'}
+                          value={loginForm.password}
+                          onChange={(e) => setLoginForm({...loginForm, password: e.target.value})}
+                          className="w-full bg-black/50 border border-white/20 p-1.5 pr-7 rounded text-white"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowLoginPassword(!showLoginPassword)}
+                          className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#f3e5ab] cursor-pointer"
+                        >
+                          {showLoginPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                        </button>
+                      </div>
                     </div>
                     <button type="submit" className="w-full bg-[#f3e5ab] text-black font-bold py-2 rounded text-xs hover:bg-white transition cursor-pointer mt-3">
                       Ingresar

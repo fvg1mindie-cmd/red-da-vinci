@@ -34,7 +34,7 @@ function App() {
       rank: '#1 Global',
       curated: true,
       time: 'Hace 2 horas',
-      content: 'Estudio de iluminación para la nueva obra. Rendimiento estimado para inversores: 14% anual.',
+      content: 'Estudio de iluminación para la nueva obra.',
       workLinked: { id: 101, title: 'Gioconda Sintética #1', type: 'fractional', tokenPrice: 5.00, APY: '14% Anual', isTokenized: true }
     }
   ]);
@@ -98,14 +98,19 @@ function App() {
     };
 
     setPosts([newPost, ...posts]);
-    setCurrentUser({
-      ...currentUser,
-      myWorksCount: (currentUser.myWorksCount || 0) + (newWorkTitle ? 1 : 0)
-    });
+
+    // Si la publicación incluye una obra, la sumamos a la galería personal del usuario actual
+    if (linked) {
+      setCurrentUser(prev => ({
+        ...prev,
+        myWorks: [...(prev.myWorks || []), linked]
+      }));
+    }
 
     setNewPostContent('');
     setNewWorkTitle('');
     setWantsToTokenize(false);
+    alert('¡Obra publicada con éxito en tu perfil y en el feed!');
   };
 
   const handleRegisterSubmit = (e) => {
@@ -128,13 +133,13 @@ function App() {
       rank: isArtist ? 'Comunidad (En revisión)' : 'N/A',
       curated: false,
       poolEligible: false,
-      myWorksCount: 0
+      myWorks: []
     };
 
     setCurrentUser(newUser);
     setUserRole(registerForm.roleRequested);
     setActiveTab('home');
-    alert(`¡Registro exitoso, ${newUser.name}!`);
+    alert(`¡Registro exitoso, ${newUser.name}! Ya puedes publicar tus obras.`);
   };
 
   const handleLoginSubmit = (e) => {
@@ -148,7 +153,9 @@ function App() {
         rank: '#4 Global',
         curated: true,
         poolEligible: true,
-        myWorksCount: 2
+        myWorks: [
+          { id: 201, title: 'Estudio Clásico en Línea', type: 'fractional', tokenPrice: 8.00, isTokenized: true }
+        ]
       };
       setCurrentUser(loggedUser);
       setUserRole('artist');
@@ -183,9 +190,9 @@ function App() {
           <p className="text-[11px] text-white font-light">Cooperativa de Arte Universal Tokenizada</p>
         </header>
 
-        {/* Layout Principal o Sección de Perfil */}
+        {/* Sección de Perfil Completa con Galería de Obras */}
         {activeTab === 'profile' && currentUser ? (
-          <main className="my-auto py-6 max-w-2xl mx-auto w-full bg-black/40 backdrop-blur-md p-6 rounded-2xl border border-[#f3e5ab]/40">
+          <main className="my-auto py-4 max-w-3xl mx-auto w-full bg-black/50 backdrop-blur-md p-5 rounded-2xl border border-[#f3e5ab]/40">
             <div className="flex items-center gap-4 border-b border-white/20 pb-4">
               <div className="w-16 h-16 rounded-full bg-[#f3e5ab] text-black font-bold text-2xl flex items-center justify-center">
                 {currentUser.name.charAt(0)}
@@ -194,7 +201,7 @@ function App() {
                 <h2 className="text-2xl font-bold text-[#f3e5ab]">{currentUser.name}</h2>
                 <p className="text-sm text-gray-300">@{currentUser.username}</p>
                 <span className="text-[10px] bg-green-950/60 text-green-300 border border-green-500/40 px-2 py-0.5 rounded-full mt-1 inline-block">
-                  {currentUser.curated ? '✓ Artista Verificado' : '🌐 Perfil Público / En revisión'}
+                  {currentUser.curated ? '✓ Artista Verificado' : '🌐 Perfil Libre / En revisión'}
                 </span>
               </div>
             </div>
@@ -202,18 +209,29 @@ function App() {
             <div className="mt-4 space-y-3 text-sm">
               <div>
                 <h3 className="text-xs uppercase text-[#f3e5ab] font-bold">Biografía del Artista</h3>
-                <p className="text-gray-200 mt-1 bg-black/30 p-3 rounded-xl border border-white/10">{currentUser.bio}</p>
+                <p className="text-gray-200 mt-1 bg-black/30 p-3 rounded-xl border border-white/10 text-xs">{currentUser.bio}</p>
               </div>
 
-              <div className="grid grid-cols-2 gap-3 text-xs">
-                <div className="bg-black/30 p-3 rounded-xl border border-white/10">
-                  <span className="text-gray-400 block">Ranking Global</span>
-                  <b className="text-[#f3e5ab] text-sm">{currentUser.rank}</b>
-                </div>
-                <div className="bg-black/30 p-3 rounded-xl border border-white/10">
-                  <span className="text-gray-400 block">Obras Registradas</span>
-                  <b className="text-green-400 text-sm">{currentUser.myWorksCount || 0} Obras</b>
-                </div>
+              {/* Galería de Obras Propias */}
+              <div>
+                <h3 className="text-xs uppercase text-[#f3e5ab] font-bold mb-2">🖼️ Obras Cargadas en mi Perfil</h3>
+                {currentUser.myWorks && currentUser.myWorks.length > 0 ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-1">
+                    {currentUser.myWorks.map((work, index) => (
+                      <div key={index} className="bg-black/40 p-3 rounded-xl border border-[#f3e5ab]/30 flex justify-between items-center text-xs">
+                        <div>
+                          <p className="font-bold text-white">{work.title}</p>
+                          <p className="text-[10px] text-[#4ade80]">{work.isTokenized ? 'Tokenizada (Activa)' : 'Exhibición Libre'}</p>
+                        </div>
+                        <span className="text-xs bg-[#f3e5ab]/20 text-[#f3e5ab] px-2 py-1 rounded border border-[#f3e5ab]/40">
+                          {work.type === 'fractional' ? `$${work.tokenPrice} USDT` : 'Muestra'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-gray-400 bg-black/30 p-3 rounded-xl border border-white/10">Aún no has cargado ninguna obra. Ve al inicio y publica una obra desde el panel central.</p>
+                )}
               </div>
             </div>
 
@@ -241,7 +259,7 @@ function App() {
                     </div>
                     <div className="flex gap-2 mt-1">
                       <button onClick={() => setActiveTab('profile')} className="bg-[#f3e5ab]/20 border border-[#f3e5ab] text-[#f3e5ab] px-2 py-1 rounded text-[10px] hover:bg-[#f3e5ab] hover:text-black transition cursor-pointer">
-                        👤 Ver Mi Perfil
+                        👤 Ver Mi Perfil ({currentUser.myWorks?.length || 0} Obras)
                       </button>
                       <button onClick={handleLogout} className="bg-red-950/40 border border-red-500/40 text-red-300 px-2 py-1 rounded text-[10px] hover:bg-red-600 hover:text-white transition cursor-pointer">
                         Salir
@@ -271,18 +289,18 @@ function App() {
             <div className="md:col-span-2 flex flex-col gap-3">
               {userRole === 'artist' && (
                 <div className="bg-black/20 backdrop-blur-md p-3 rounded-xl border border-[#f3e5ab]/30">
-                  <h3 className="text-[11px] uppercase font-bold text-[#f3e5ab] mb-1">Publicar como Artista</h3>
+                  <h3 className="text-[11px] uppercase font-bold text-[#f3e5ab] mb-1">Publicar y Cargar Obra</h3>
                   <form onSubmit={handleCreatePost} className="space-y-2 text-xs">
                     <textarea 
                       rows="2" 
                       value={newPostContent} 
                       onChange={(e) => setNewPostContent(e.target.value)} 
-                      placeholder={currentUser ? "Comparte novedades con tus coleccionistas..." : "⚠️ Inicia sesión para publicar..."}
+                      placeholder={currentUser ? "Comparte novedades sobre tu arte..." : "⚠️ Inicia sesión para publicar..."}
                       className="w-full bg-black/30 border border-white/20 rounded p-2 text-white focus:outline-none focus:border-[#f3e5ab]"
                       disabled={!currentUser}
                     />
                     <div className="flex flex-col gap-2 bg-black/20 p-2 rounded border border-dashed border-white/20 text-[11px]">
-                      <input type="text" placeholder="Nombre de la obra (opcional)" value={newWorkTitle} onChange={(e) => setNewWorkTitle(e.target.value)} className="w-full bg-black/30 border border-white/20 p-1 rounded text-white" disabled={!currentUser}/>
+                      <input type="text" placeholder="Nombre de la obra (ej: Mi Gran Obra)" value={newWorkTitle} onChange={(e) => setNewWorkTitle(e.target.value)} className="w-full bg-black/30 border border-white/20 p-1 rounded text-white" disabled={!currentUser}/>
                       
                       {newWorkTitle && (
                         <div className="flex items-center gap-2 flex-wrap">
@@ -377,7 +395,7 @@ function App() {
               
               {activeTab === 'register' && (
                 <div>
-                  <h3 className="font-bold text-[#f3e5ab] mb-2 text-sm">📝 Registro de Usuario</h3>
+                  <h3 className="font-bold text-[#f3e5ab] mb-2 text-sm">📝 Registro de Artista / Comprador</h3>
                   <form onSubmit={handleRegisterSubmit} className="space-y-2 text-xs">
                     <div>
                       <label className="text-gray-300 text-[10px] block mb-0.5">Tipo de Perfil:</label>
@@ -401,7 +419,7 @@ function App() {
                       <input type="email" placeholder="leo@florencia.com" value={registerForm.email} onChange={(e) => setRegisterForm({...registerForm, email: e.target.value})} className="w-full bg-black/50 border border-white/20 p-1.5 rounded text-white" />
                     </div>
                     <div>
-                      <label className="text-gray-300 text-[10px] block mb-0.5">Biografía Inicial:</label>
+                      <label className="text-gray-300 text-[10px] block mb-0.5">Biografía:</label>
                       <textarea rows="2" placeholder="Cuéntanos sobre tu arte..." value={registerForm.bio} onChange={(e) => setRegisterForm({...registerForm, bio: e.target.value})} className="w-full bg-black/50 border border-white/20 p-1.5 rounded text-white" />
                     </div>
                     <div className="grid grid-cols-2 gap-2">
@@ -431,7 +449,7 @@ function App() {
                     </div>
                     <div>
                       <label className="text-gray-300 text-[10px] block mb-0.5">Contraseña:</label>
-                      <input type="password" value={loginForm.password} onChange={(e) => setLoginForm({...loginForm, loginForm: e.target.value})} className="w-full bg-black/50 border border-white/20 p-1.5 rounded text-white" />
+                      <input type="password" value={loginForm.password} onChange={(e) => setLoginForm({...loginForm, password: e.target.value})} className="w-full bg-black/50 border border-white/20 p-1.5 rounded text-white" />
                     </div>
                     <button type="submit" className="w-full bg-[#f3e5ab] text-black font-bold py-2 rounded text-xs hover:bg-white transition cursor-pointer mt-3">
                       Ingresar

@@ -8,17 +8,30 @@ function App() {
   const [balanceUSDT, setBalanceUSDT] = useState(250.00);
   const [tokensRDV, setTokensRDV] = useState(120);
 
-  const [currentUser] = useState({
+  // Perfil del Usuario Actual
+  const [currentUser, setCurrentUser] = useState({
     name: 'Diego Da Vinci',
+    username: 'diego_art',
+    bio: 'Artista digital y gestor cultural Web3.',
+    portfolioUrl: 'https://reddavinci.com/diego_art',
     rank: '#4 Global',
-    curated: true,
+    curated: true, // Si es false, no puede tokenizar ni entrar al pozo
     poolEligible: true,
+  });
+
+  // Estado del Formulario de Registro / Edición de Perfil
+  const [registerForm, setRegisterForm] = useState({
+    name: '',
+    username: '',
+    bio: '',
+    portfolioUrl: '',
+    roleRequested: 'artist'
   });
 
   const [artists, setArtists] = useState([
     { id: 1, name: 'Leonardo V.', rank: '#1', curated: true, APY: '14%', isSubscribed: true },
     { id: 2, name: 'Elena Rostova', rank: '#2', curated: true, APY: '11%', isSubscribed: false },
-    { id: 3, name: 'Colectivo Sombra', rank: '#8', curated: false, APY: '7%', isSubscribed: false },
+    { id: 3, name: 'Colectivo Sombra', rank: '#8', curated: false, APY: 'Pendiente', isSubscribed: false },
   ]);
 
   const [posts, setPosts] = useState([
@@ -26,17 +39,19 @@ function App() {
       id: 1,
       artistName: 'Leonardo V.',
       rank: '#1 Global',
+      curated: true,
       time: 'Hace 2 horas',
       content: 'Estudio de iluminación para la nueva obra. Rendimiento estimado para inversores: 14% anual por alquileres e itinerancia física.',
-      workLinked: { id: 101, title: 'Gioconda Sintética #1', type: 'fractional', tokenPrice: 5.00, APY: '14% Anual' }
+      workLinked: { id: 101, title: 'Gioconda Sintética #1', type: 'fractional', tokenPrice: 5.00, APY: '14% Anual', isTokenized: true }
     },
     {
       id: 2,
-      artistName: 'Elena Rostova',
-      rank: '#2 Global',
-      time: 'Hace 4 horas',
-      content: '¡Obra curada por el Comité Marco! Disponible para adquisición como TOKEN ÚNICO con el 100% de los derechos comerciales.',
-      workLinked: { id: 102, title: 'Noche de Oro Digital', type: 'unique', uniquePrice: 150.00, sold: false }
+      artistName: 'Colectivo Sombra',
+      rank: 'Comunidad',
+      curated: false,
+      time: 'Hace 3 horas',
+      content: 'Comparto un boceto rápido de mi última escultura en progreso. ¡Cualquier comentario es bienvenido!',
+      workLinked: { id: 103, title: 'Boceto de Escultura', type: 'showcase', tokenPrice: 0, APY: 'N/A', isTokenized: false }
     }
   ]);
 
@@ -46,6 +61,7 @@ function App() {
 
   const [newPostContent, setNewPostContent] = useState('');
   const [newWorkTitle, setNewWorkTitle] = useState('');
+  const [wantsToTokenize, setWantsToTokenize] = useState(false);
   const [tokenTypeSelection, setTokenTypeSelection] = useState('fractional');
   const [newWorkPrice, setNewWorkPrice] = useState(10);
 
@@ -59,6 +75,10 @@ function App() {
   };
 
   const handleBuyToken = (work) => {
+    if (!work.isTokenized) {
+      alert('Esta obra es solo de exhibición. El artista aún no ha sido aprobado por el Comité Curador para tokenizar.');
+      return;
+    }
     const cost = work.type === 'fractional' ? work.tokenPrice : work.uniquePrice;
     if (balanceUSDT >= cost) {
       setBalanceUSDT(prev => prev - cost);
@@ -77,15 +97,22 @@ function App() {
     e.preventDefault();
     if (!newPostContent) return;
 
+    // Validación: Si intenta tokenizar pero no está curado
+    if (wantsToTokenize && !currentUser.curated) {
+      alert('⚠️ Para tokenizar tus obras y vender participaciones, debes solicitar la revisión del Comité Curador desde tu Perfil.');
+      return;
+    }
+
     let linked = null;
     if (newWorkTitle) {
       linked = {
         id: Date.now(),
         title: newWorkTitle,
-        type: tokenTypeSelection,
-        tokenPrice: tokenTypeSelection === 'fractional' ? Number(newWorkPrice) : 0,
-        uniquePrice: tokenTypeSelection === 'unique' ? Number(newWorkPrice) : 0,
-        APY: '10% Est.'
+        type: wantsToTokenize ? tokenTypeSelection : 'showcase',
+        tokenPrice: wantsToTokenize && tokenTypeSelection === 'fractional' ? Number(newWorkPrice) : 0,
+        uniquePrice: wantsToTokenize && tokenTypeSelection === 'unique' ? Number(newWorkPrice) : 0,
+        APY: wantsToTokenize ? '10% Est.' : 'N/A',
+        isTokenized: wantsToTokenize && currentUser.curated
       };
     }
 
@@ -93,6 +120,7 @@ function App() {
       id: Date.now(),
       artistName: currentUser.name,
       rank: currentUser.rank,
+      curated: currentUser.curated,
       time: 'Justo ahora',
       content: newPostContent,
       workLinked: linked
@@ -100,6 +128,47 @@ function App() {
 
     setNewPostContent('');
     setNewWorkTitle('');
+    setWantsToTokenize(false);
+  };
+
+  const handleRegisterSubmit = (e) => {
+    e.preventDefault();
+    if (!registerForm.name || !registerForm.username) {
+      alert('Por favor completa al menos el nombre y nombre de usuario.');
+      return;
+    }
+
+    const isArtist = registerForm.roleRequested === 'artist';
+
+    setCurrentUser({
+      name: registerForm.name,
+      username: registerForm.username,
+      bio: registerForm.bio || 'Nuevo miembro de la Red Da Vinci.',
+      portfolioUrl: registerForm.portfolioUrl || '',
+      rank: isArtist ? 'Comunidad' : 'N/A',
+      curated: false, // Inicia libre (no curado)
+      poolEligible: false,
+    });
+
+    setUserRole(registerForm.roleRequested);
+
+    if (isArtist) {
+      setArtists([...artists, {
+        id: Date.now(),
+        name: registerForm.name,
+        rank: 'Comunidad',
+        curated: false,
+        APY: 'En revisión',
+        isSubscribed: false
+      }]);
+    }
+
+    setActiveTab('home');
+    alert(`¡Perfil libre creado! Puedes publicar obras en la comunidad. Si deseas tokenizarlas, solicita la verificación curatorial.`);
+  };
+
+  const handleRequestCurativeReview = () => {
+    alert('📩 Solicitud enviada al Comité Curador. Evaluaremos tu portafolio en un lapso de 48 hs.');
   };
 
   return (
@@ -119,7 +188,7 @@ function App() {
               Modo: {userRole === 'artist' ? '🎨 Artista' : '💎 Comprador'}
             </button>
           </div>
-          <p className="text-[11px] text-white font-light">Red Social y Cooperativa de Arte Tokenizado</p>
+          <p className="text-[11px] text-white font-light">Red Social Libre y Cooperativa de Arte Tokenizado</p>
           <div className="mt-1 inline-flex items-center gap-2 bg-black/30 px-3 py-0.5 rounded-full border border-[#f3e5ab]/30 text-[10px]">
             <span className="text-gray-200">Pozo Cooperativo (5%):</span>
             <span className="font-mono font-bold text-[#4ade80]">$45,280 USDT</span>
@@ -139,17 +208,26 @@ function App() {
                 </div>
                 <div>
                   <h4 className="font-bold text-xs text-[#f3e5ab]">{currentUser.name}</h4>
-                  <span className="text-[9px] bg-green-950/60 text-green-300 border border-green-500/40 px-1.5 py-0.5 rounded-full">
-                    {currentUser.curated ? '✓ Curado por Expertos' : 'En revisión'}
+                  <span className={`text-[9px] px-1.5 py-0.5 rounded-full border ${currentUser.curated ? 'bg-green-950/60 text-green-300 border-green-500/40' : 'bg-gray-800 text-gray-300 border-gray-600'}`}>
+                    {currentUser.curated ? '✓ Artista Curado (Habilitado Web3)' : '🌐 Perfil Libre (Comunidad)'}
                   </span>
                 </div>
               </div>
-              <div className="mt-2 pt-1.5 border-t border-white/10 text-[10px] space-y-0.5 text-gray-200">
+              <div className="mt-2 pt-1.5 border-t border-white/10 text-[10px] space-y-1 text-gray-200">
                 <p>Ranking: <b className="text-[#f3e5ab]">{currentUser.rank}</b></p>
-                <p>Apto Pozo Cooperativo: <b className={currentUser.poolEligible ? "text-green-400" : "text-red-400"}>{currentUser.poolEligible ? "SI (Cumple Requisitos)" : "NO"}</b></p>
+                <p>Apto Pozo Cooperativo: <b className={currentUser.poolEligible ? "text-green-400" : "text-gray-400"}>{currentUser.poolEligible ? "SI" : "Requiere Curaduría"}</b></p>
+                
+                {!currentUser.curated && (
+                  <button onClick={handleRequestCurativeReview} className="mt-1 w-full bg-[#f3e5ab]/20 border border-[#f3e5ab] text-[#f3e5ab] py-1 rounded text-[9px] hover:bg-[#f3e5ab] hover:text-black transition cursor-pointer">
+                    Solicitar Verificación para Tokenizar
+                  </button>
+                )}
               </div>
             </div>
 
+            <button onClick={() => setActiveTab('register')} className="bg-black/20 backdrop-blur-md px-3 py-1.5 rounded-xl border border-white/20 hover:border-[#f3e5ab] text-xs font-bold w-fit hover:bg-black/40 transition cursor-pointer">
+              ✏️ Crear / Editar Perfil
+            </button>
             <button onClick={() => setActiveTab('wallet')} className="bg-black/20 backdrop-blur-md px-3 py-2 rounded-xl border border-white/20 hover:border-[#f3e5ab] text-left transition text-xs w-fit hover:bg-black/40 cursor-pointer">
               <h3 className="font-bold text-[#f3e5ab]">👤 Perfil & Wallet Web3</h3>
               <p className="text-[10px] text-gray-200">Saldo: ${balanceUSDT.toFixed(2)} USDT</p>
@@ -164,29 +242,43 @@ function App() {
           <div className="md:col-span-2 flex flex-col gap-3">
             {userRole === 'artist' && (
               <div className="bg-black/20 backdrop-blur-md p-3 rounded-xl border border-[#f3e5ab]/30">
-                <h3 className="text-[11px] uppercase font-bold text-[#f3e5ab] mb-1">Publicar como Artista</h3>
+                <h3 className="text-[11px] uppercase font-bold text-[#f3e5ab] mb-1">Publicar en la Comunidad</h3>
                 <form onSubmit={handleCreatePost} className="space-y-2 text-xs">
                   <textarea 
                     rows="2" 
                     value={newPostContent} 
                     onChange={(e) => setNewPostContent(e.target.value)} 
-                    placeholder="Comparte novedades con tus coleccionistas..." 
+                    placeholder="Comparte tu arte con la comunidad..." 
                     className="w-full bg-black/30 border border-white/20 rounded p-2 text-white focus:outline-none focus:border-[#f3e5ab]"
                   />
-                  <div className="flex gap-2 items-center bg-black/20 p-2 rounded border border-dashed border-white/20 text-[11px]">
-                    <input type="text" placeholder="Obra vinculada (opcional)" value={newWorkTitle} onChange={(e) => setNewWorkTitle(e.target.value)} className="flex-1 bg-black/30 border border-white/20 p-1 rounded text-white" />
+                  <div className="flex flex-col gap-2 bg-black/20 p-2 rounded border border-dashed border-white/20 text-[11px]">
+                    <input type="text" placeholder="Nombre de la obra (opcional)" value={newWorkTitle} onChange={(e) => setNewWorkTitle(e.target.value)} className="w-full bg-black/30 border border-white/20 p-1 rounded text-white" />
+                    
                     {newWorkTitle && (
-                      <>
-                        <select value={tokenTypeSelection} onChange={(e) => setTokenTypeSelection(e.target.value)} className="bg-black border border-white/20 text-[#f3e5ab] p-1 rounded text-[10px]">
-                          <option value="fractional">Colectiva (%)</option>
-                          <option value="unique">Token Único (100%)</option>
-                        </select>
-                        <input type="number" placeholder="Precio USDT" value={newWorkPrice} onChange={(e) => setNewWorkPrice(e.target.value)} className="w-20 bg-black/30 border border-white/20 p-1 rounded text-white" />
-                      </>
+                      <div className="flex items-center gap-2">
+                        <label className="flex items-center gap-1 text-[10px] text-[#f3e5ab] cursor-pointer">
+                          <input 
+                            type="checkbox" 
+                            checked={wantsToTokenize} 
+                            onChange={(e) => setWantsToTokenize(e.target.checked)} 
+                          />
+                          ¿Deseas tokenizar esta obra para venta/financiamiento?
+                        </label>
+                        
+                        {wantsToTokenize && (
+                          <>
+                            <select value={tokenTypeSelection} onChange={(e) => setTokenTypeSelection(e.target.value)} className="bg-black border border-white/20 text-[#f3e5ab] p-1 rounded text-[10px]">
+                              <option value="fractional">Colectiva (%)</option>
+                              <option value="unique">Token Único (100%)</option>
+                            </select>
+                            <input type="number" placeholder="Precio USDT" value={newWorkPrice} onChange={(e) => setNewWorkPrice(e.target.value)} className="w-20 bg-black/30 border border-white/20 p-1 rounded text-white" />
+                          </>
+                        )}
+                      </div>
                     )}
                   </div>
                   <div className="flex justify-end">
-                    <button type="submit" className="bg-[#f3e5ab] text-black font-bold px-3 py-1 rounded text-xs hover:bg-white transition cursor-pointer">Publicar</button>
+                    <button type="submit" className="bg-[#f3e5ab] text-black font-bold px-3 py-1 rounded text-xs hover:bg-white transition cursor-pointer">Publicar Obra</button>
                   </div>
                 </form>
               </div>
@@ -199,7 +291,9 @@ function App() {
                   <div className="flex justify-between items-center mb-1">
                     <div className="flex items-center gap-2">
                       <span className="font-bold text-[#f3e5ab]">{post.artistName}</span>
-                      <span className="text-[9px] bg-yellow-950/60 text-yellow-300 border border-yellow-500/40 px-1 rounded">{post.rank}</span>
+                      <span className={`text-[9px] px-1 rounded border ${post.curated ? 'bg-yellow-950/60 text-yellow-300 border-yellow-500/40' : 'bg-gray-800 text-gray-300 border-gray-600'}`}>
+                        {post.curated ? `Curado ${post.rank}` : 'Comunidad'}
+                      </span>
                     </div>
                     <span className="text-[10px] text-gray-300">{post.time}</span>
                   </div>
@@ -209,11 +303,19 @@ function App() {
                     <div className="p-2 bg-black/30 rounded border border-[#f3e5ab]/40 flex justify-between items-center my-2">
                       <div>
                         <p className="font-bold text-white">{post.workLinked.title}</p>
-                        <p className="text-[10px] text-[#4ade80]">Rendimiento Est: {post.workLinked.APY}</p>
+                        {post.workLinked.isTokenized ? (
+                          <p className="text-[10px] text-[#4ade80]">Rendimiento Est: {post.workLinked.APY}</p>
+                        ) : (
+                          <p className="text-[10px] text-gray-400">Exhibición libre (No tokenizada)</p>
+                        )}
                       </div>
-                      <button onClick={() => handleBuyToken(post.workLinked)} className="bg-[#f3e5ab] text-black font-bold px-3 py-1 rounded text-[10px] hover:bg-white transition cursor-pointer">
-                        {post.workLinked.type === 'fractional' ? `Comprar Token ($${post.workLinked.tokenPrice} USDT)` : `Adquirir Obra ($${post.workLinked.uniquePrice} USDT)`}
-                      </button>
+                      {post.workLinked.isTokenized ? (
+                        <button onClick={() => handleBuyToken(post.workLinked)} className="bg-[#f3e5ab] text-black font-bold px-3 py-1 rounded text-[10px] hover:bg-white transition cursor-pointer">
+                          {post.workLinked.type === 'fractional' ? `Comprar Token ($${post.workLinked.tokenPrice} USDT)` : `Adquirir Obra ($${post.workLinked.uniquePrice} USDT)`}
+                        </button>
+                      ) : (
+                        <span className="text-[9px] bg-gray-800 text-gray-400 px-2 py-1 rounded border border-gray-700">Solo Muestra</span>
+                      )}
                     </div>
                   )}
                 </div>
@@ -230,7 +332,7 @@ function App() {
                   <div key={artist.id} className="flex justify-between items-center gap-4 border-b border-white/10 pb-1">
                     <div>
                       <p className="font-bold text-white">{artist.rank} {artist.name}</p>
-                      <p className="text-[9px] text-[#4ade80]">APY Est: {artist.APY}</p>
+                      <p className="text-[9px] text-[#4ade80]">{artist.curated ? `APY Est: ${artist.APY}` : 'No Curado'}</p>
                     </div>
                     <button onClick={() => handleToggleSubscribe(artist.id)} className="bg-[#f3e5ab]/20 border border-[#f3e5ab] text-[#f3e5ab] px-2 py-0.5 rounded text-[10px] hover:bg-[#f3e5ab] hover:text-black transition cursor-pointer">
                       {artist.isSubscribed ? 'Suscrito ✓' : '+ Seguir'}
@@ -248,6 +350,71 @@ function App() {
             <div className="bg-[#121212]/90 border border-[#f3e5ab]/40 rounded-xl p-5 max-w-md w-full text-white relative">
               <button onClick={() => setActiveTab('home')} className="absolute top-2 right-3 text-gray-400 hover:text-white cursor-pointer">✕</button>
               
+              {/* Modal de Registro / Perfil */}
+              {activeTab === 'register' && (
+                <div>
+                  <h3 className="font-bold text-[#f3e5ab] mb-2 text-sm">📝 Crear / Editar Perfil</h3>
+                  <form onSubmit={handleRegisterSubmit} className="space-y-2 text-xs">
+                    <div>
+                      <label className="text-gray-300 text-[10px] block mb-0.5">Tipo de Perfil:</label>
+                      <select 
+                        value={registerForm.roleRequested} 
+                        onChange={(e) => setRegisterForm({...registerForm, roleRequested: e.target.value})}
+                        className="w-full bg-black border border-white/20 p-1.5 rounded text-white text-xs"
+                      >
+                        <option value="artist">🎨 Artista (Publicar obras y portafolio)</option>
+                        <option value="buyer">💎 Comprador / Inversor (Coleccionar y Recibir Dividendos)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-gray-300 text-[10px] block mb-0.5">Nombre Completo o Colectivo:</label>
+                      <input 
+                        type="text" 
+                        placeholder="Ej: Sofía Da Vinci" 
+                        value={registerForm.name}
+                        onChange={(e) => setRegisterForm({...registerForm, name: e.target.value})}
+                        className="w-full bg-black/50 border border-white/20 p-1.5 rounded text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-gray-300 text-[10px] block mb-0.5">Nombre de Usuario (@):</label>
+                      <input 
+                        type="text" 
+                        placeholder="Ej: sofia_art" 
+                        value={registerForm.username}
+                        onChange={(e) => setRegisterForm({...registerForm, username: e.target.value})}
+                        className="w-full bg-black/50 border border-white/20 p-1.5 rounded text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-gray-300 text-[10px] block mb-0.5">Biografía / Presentación:</label>
+                      <textarea 
+                        rows="2"
+                        placeholder="Cuéntale a la comunidad sobre tu arte..." 
+                        value={registerForm.bio}
+                        onChange={(e) => setRegisterForm({...registerForm, bio: e.target.value})}
+                        className="w-full bg-black/50 border border-white/20 p-1.5 rounded text-white"
+                      />
+                    </div>
+                    {registerForm.roleRequested === 'artist' && (
+                      <div>
+                        <label className="text-gray-300 text-[10px] block mb-0.5">Enlace a Portafolio / Redes (Para Curaduría Futura):</label>
+                        <input 
+                          type="url" 
+                          placeholder="https://instagram.com/tu_arte" 
+                          value={registerForm.portfolioUrl}
+                          onChange={(e) => setRegisterForm({...registerForm, portfolioUrl: e.target.value})}
+                          className="w-full bg-black/50 border border-white/20 p-1.5 rounded text-white"
+                        />
+                      </div>
+                    )}
+                    <button type="submit" className="w-full bg-[#f3e5ab] text-black font-bold py-2 rounded text-xs hover:bg-white transition cursor-pointer mt-2">
+                      Crear Perfil Libre
+                    </button>
+                  </form>
+                </div>
+              )}
+
               {activeTab === 'wallet' && (
                 <div>
                   <h3 className="font-bold text-[#f3e5ab] mb-2">👤 Mi Billetera Web3</h3>

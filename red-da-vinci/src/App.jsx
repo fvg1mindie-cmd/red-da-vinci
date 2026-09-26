@@ -1,20 +1,17 @@
-import React, { useState } from 'react';
-
-// NOTA: Para producción real con Base de Datos, aquí importamos el cliente de Supabase:
-// import { createClient } from '@supabase/supabase-js'
+import React, { useState, useEffect } from 'react';
+import { supabase } from './supabaseClient';
 
 function App() {
   const [activeTab, setActiveTab] = useState('home');
   const [userRole, setUserRole] = useState('artist');
   const [walletConnected, setWalletConnected] = useState(false);
   const [walletAddress, setWalletAddress] = useState('');
-  const [balanceUSDT, setBalanceUSDT] = useState(250.00);
-  const [tokensRDV, setTokensRDV] = useState(120);
+  const [balanceUSDT, setBalanceUSDT] = useState(250.00); // Simulado hasta definir blockchain/DeFi
 
-  // Usuario autenticado (Conectado a sesión real o base de datos)
-  const [currentUser, setCurrentUser] = useState(null);
+  const [session, setSession] = useState(null);
+  const [currentUser, setCurrentUser] = useState(null); // perfil real (tabla profiles)
+  const [authLoading, setAuthLoading] = useState(true);
 
-  // Formulario de Registro con validaciones completas
   const [registerForm, setRegisterForm] = useState({
     email: '',
     password: '',
@@ -27,52 +24,141 @@ function App() {
 
   const [loginForm, setLoginForm] = useState({ email: '', password: '' });
 
-  // Listas generales sincronizadas
-  const [artists, setArtists] = useState([
-    { id: 1, name: 'Leonardo V.', rank: '#1', curated: true, APY: '14%', isSubscribed: true },
-    { id: 2, name: 'Elena Rostova', rank: '#2', curated: true, APY: '11%', isSubscribed: false },
-  ]);
+  const [artists, setArtists] = useState([]);
+  const [posts, setPosts] = useState([]);
+  const [myTokens, setMyTokens] = useState([]);
+  const [myWorks, setMyWorks] = useState([]);
 
-  const [posts, setPosts] = useState([
-    {
-      id: 1,
-      artistName: 'Leonardo V.',
-      rank: '#1 Global',
-      curated: true,
-      time: 'Hace 2 horas',
-      content: 'Estudio de iluminación para la nueva obra.',
-      workLinked: { id: 101, title: 'Gioconda Sintética #1', type: 'fractional', tokenPrice: 5.00, APY: '14% Anual', isTokenized: true }
-    }
-  ]);
-
-  const [myTokens] = useState([
-    { id: 1, title: 'El Hombre de Vitruvio 2.0', quantity: 80, valueUSDT: 160, dividendsUSDT: 12.50 },
-  ]);
-
-  // Estados para crear publicaciones y obras reales
   const [newPostContent, setNewPostContent] = useState('');
   const [newWorkTitle, setNewWorkTitle] = useState('');
   const [wantsToTokenize, setWantsToTokenize] = useState(false);
   const [tokenTypeSelection, setTokenTypeSelection] = useState('fractional');
   const [newWorkPrice, setNewWorkPrice] = useState(10);
 
+  // --- Sesión y perfil ---
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      if (session) loadProfile(session.user.id);
+      else setAuthLoading(false);
+    });
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      setSession(newSession);
+      if (newSession) {
+        loadProfile(newSession.user.id);
+      } else {
+        setCurrentUser(null);
+        setAuthLoading(false);
+      }
+    });
+
+    return () => listener.subscription.unsubscribe();
+  }, []);
+
+  const loadProfile = async (userId) => {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', userId)
+      .single();
+
+    if (!error && data) {
+      setCurrentUser(data);
+      setUserRole(data.role);
+    } else {
+      console.error('Error cargando perfil:', error);
+    }
+    setAuthLoading(false);
+  };
+
+  // --- Datos públicos ---
+  useEffect(() => {
+    loadPosts();
+    loadArtists();
+  }, []);
+
+  useEffect(() => {
+    if (currentUser) {
+      loadMyTokens(currentUser.id);
+      loadMyWorks(currentUser.id);
+    }
+  }, [currentUser]);
+
+  const loadPosts = async () => {
+    const { data, error } = await supabase
+      .from('posts')
+      .select('*, profiles(name, username, curated), works(*)')
+      .order('created_at', { ascending: false });
+    if (!error) setPosts(data || []);
+    else console.error(error);
+  };
+
+  const loadArtists = async () => {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('role', 'artist')
+      .eq('curated', true)
+      .order('created_at', { ascending: false });
+    if (!error) setArtists(data || []);
+    else console.error(error);
+  };
+
+  const loadMyTokens = async (userId) => {
+    const { data, error } = await supabase
+      .from('token_holdings')
+      .select('*, works(title, price, token_type)')
+      .eq('owner_id', userId);
+    if (!error) setMyTokens(data || []);
+    else console.error(error);
+  };
+
+  const loadMyWorks = async (userId) => {
+    const { data, error } = await supabase
+      .from('works')
+      .select('*')
+      .eq('artist_id', userId)
+      .order('created_at', { ascending: false });
+    if (!error) setMyWorks(data || []);
+    else console.error(error);
+  };
+
   const handleConnectWallet = () => {
     setWalletConnected(!walletConnected);
     setWalletAddress(walletConnected ? '' : '0x71C...39A2');
   };
 
-  const handleBuyToken = (work) => {
+  const handleBuyToken = async (work) => {
     if (!currentUser) { alert('⚠️ Debes iniciar sesión para comprar tokens.'); return; }
-    if (!work.isTokenized) { alert('Esta obra es solo de exhibición.'); return; }
-    const cost = work.type === 'fractional' ? work.tokenPrice : work.uniquePrice;
-    if (balanceUSDT >= cost) {
-      setBalanceUSDT(prev => prev - cost);
-      if (work.type === 'unique') { alert(`¡Compraste el TOKEN ÚNICO de "${work.title}"!`); }
-      else { setTokensRDV(prev => prev + 1); alert(`¡Compraste 1 token cooperativo de "${work.title}"!`); }
-    } else { alert('Saldo insuficiente en USDT.'); }
+    if (!work.is_tokenized) { alert('Esta obra es solo de exhibición.'); return; }
+
+    const cost = Number(work.price) || 0;
+    if (balanceUSDT < cost) { alert('Saldo insuficiente en USDT.'); return; }
+
+    const { error } = await supabase.from('token_holdings').insert({
+      owner_id: currentUser.id,
+      work_id: work.id,
+      quantity: 1
+    });
+
+    if (error) {
+      alert('Ocurrió un error al comprar el token.');
+      console.error(error);
+      return;
+    }
+
+    setBalanceUSDT(prev => prev - cost);
+    loadMyTokens(currentUser.id);
+
+    if (work.token_type === 'unique') {
+      alert(`¡Compraste el TOKEN ÚNICO de "${work.title}"!`);
+    } else {
+      alert(`¡Compraste 1 token cooperativo de "${work.title}"!`);
+    }
   };
 
-  const handleCreatePost = (e) => {
+  const handleCreatePost = async (e) => {
     e.preventDefault();
     if (!currentUser) { alert('⚠️ Debes iniciar sesión para publicar.'); return; }
     if (!newPostContent) return;
@@ -82,46 +168,50 @@ function App() {
       return;
     }
 
-    let linked = null;
+    let workId = null;
+
     if (newWorkTitle) {
-      linked = {
-        id: Date.now(),
-        title: newWorkTitle,
-        type: wantsToTokenize ? tokenTypeSelection : 'showcase',
-        tokenPrice: wantsToTokenize && tokenTypeSelection === 'fractional' ? Number(newWorkPrice) : 0,
-        uniquePrice: wantsToTokenize && tokenTypeSelection === 'unique' ? Number(newWorkPrice) : 0,
-        isTokenized: wantsToTokenize && currentUser.curated
-      };
+      const { data: workData, error: workError } = await supabase
+        .from('works')
+        .insert({
+          artist_id: currentUser.id,
+          title: newWorkTitle,
+          token_type: wantsToTokenize ? tokenTypeSelection : 'showcase',
+          price: wantsToTokenize ? Number(newWorkPrice) : 0,
+          is_tokenized: wantsToTokenize && currentUser.curated
+        })
+        .select()
+        .single();
+
+      if (workError) {
+        alert('Error al guardar la obra.');
+        console.error(workError);
+        return;
+      }
+      workId = workData.id;
     }
 
-    const newPost = {
-      id: Date.now(),
-      artistName: currentUser.name,
-      rank: currentUser.rank,
-      curated: currentUser.curated,
-      time: 'Justo ahora',
+    const { error: postError } = await supabase.from('posts').insert({
+      author_id: currentUser.id,
       content: newPostContent,
-      workLinked: linked
-    };
+      work_id: workId
+    });
 
-    // Actualizamos el feed global
-    setPosts([newPost, ...posts]);
-
-    // Si subió una obra, la guardamos directamente en el perfil del usuario actual
-    if (linked) {
-      setCurrentUser(prev => ({
-        ...prev,
-        myWorks: [...(prev.myWorks || []), linked]
-      }));
+    if (postError) {
+      alert('Error al publicar.');
+      console.error(postError);
+      return;
     }
 
     setNewPostContent('');
     setNewWorkTitle('');
     setWantsToTokenize(false);
+    loadPosts();
+    loadMyWorks(currentUser.id);
     alert('¡Obra cargada con éxito en tu perfil y publicada en la Red!');
   };
 
-  const handleRegisterSubmit = (e) => {
+  const handleRegisterSubmit = async (e) => {
     e.preventDefault();
     if (registerForm.password !== registerForm.confirmPassword) {
       alert('⚠️ Las contraseñas no coinciden.');
@@ -132,65 +222,85 @@ function App() {
       return;
     }
 
-    const isArtist = registerForm.roleRequested === 'artist';
-    
-    // Objeto de usuario real registrado
-    const newUser = {
-      name: registerForm.name,
-      username: registerForm.username,
+    const { data, error } = await supabase.auth.signUp({
       email: registerForm.email,
-      bio: registerForm.bio || 'Artista de la Red Da Vinci.',
-      rank: isArtist ? 'Comunidad (En revisión)' : 'N/A',
-      curated: false,
-      poolEligible: false,
-      myWorks: [] // Aquí se almacenarán sus obras reales
-    };
+      password: registerForm.password
+    });
 
-    setCurrentUser(newUser);
-    setUserRole(registerForm.roleRequested);
-    setActiveTab('home');
-    alert(`¡Cuenta creada con éxito, ${newUser.name}! Ya puedes cargar tus obras.`);
-  };
-
-  const handleLoginSubmit = (e) => {
-    e.preventDefault();
-    if(loginForm.email && loginForm.password) {
-      const loggedUser = {
-        name: loginForm.email.split('@')[0],
-        username: loginForm.email.split('@')[0],
-        email: loginForm.email,
-        bio: 'Artista digital verificado en la red de arte tokenizado.',
-        rank: '#4 Global',
-        curated: true,
-        poolEligible: true,
-        myWorks: [
-          { id: 201, title: 'Autorretrato Cuántico', type: 'fractional', tokenPrice: 12.00, isTokenized: true }
-        ]
-      };
-      setCurrentUser(loggedUser);
-      setUserRole('artist');
-      setActiveTab('home');
-      alert('¡Bienvenido de nuevo!');
-    } else {
-      alert('Ingresa tus credenciales.');
+    if (error) {
+      alert('Error al crear la cuenta: ' + error.message);
+      return;
     }
+
+    if (data.user) {
+      const { error: profileError } = await supabase.from('profiles').insert({
+        id: data.user.id,
+        name: registerForm.name,
+        username: registerForm.username,
+        bio: registerForm.bio || 'Artista de la Red Da Vinci.',
+        role: registerForm.roleRequested,
+        curated: false
+      });
+
+      if (profileError) {
+        alert('Cuenta creada, pero hubo un error guardando el perfil: ' + profileError.message);
+        console.error(profileError);
+      }
+    }
+
+    setActiveTab('home');
+    alert(
+      data.session
+        ? `¡Cuenta creada con éxito, ${registerForm.name}! Ya puedes cargar tus obras.`
+        : `¡Cuenta creada! Revisá tu correo (${registerForm.email}) para confirmar antes de iniciar sesión.`
+    );
   };
 
-  const handleLogout = () => {
+  const handleLoginSubmit = async (e) => {
+    e.preventDefault();
+    if (!loginForm.email || !loginForm.password) {
+      alert('Ingresa tus credenciales.');
+      return;
+    }
+
+    const { error } = await supabase.auth.signInWithPassword({
+      email: loginForm.email,
+      password: loginForm.password
+    });
+
+    if (error) {
+      alert('Error al iniciar sesión: ' + error.message);
+      return;
+    }
+
+    setActiveTab('home');
+    alert('¡Bienvenido de nuevo!');
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
     setCurrentUser(null);
     setActiveTab('home');
   };
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-[#0a0a0a] text-[#f3e5ab] flex items-center justify-center font-serif">
+        Cargando Red Da Vinci...
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white font-serif relative flex flex-col justify-between p-3 md:p-4 overflow-x-hidden">
       <div className="absolute inset-0 z-0 bg-center bg-cover bg-no-repeat opacity-95 pointer-events-none" style={{ backgroundImage: `url('/lo1.jpg')` }}></div>
 
       <div className="relative z-10 flex flex-col justify-between min-h-screen drop-shadow-[0_2px_10px_rgba(0,0,0,0.9)]">
-        
+
         <header className="flex flex-col items-center text-center py-2 px-5 bg-black/20 backdrop-blur-md border border-[#f3e5ab]/30 rounded-xl w-fit mx-auto shadow-lg">
           <div className="flex items-center gap-3 mb-0.5">
             <h1 className="text-xl md:text-3xl font-bold tracking-widest text-[#f3e5ab]">RED DA VINCI</h1>
-            <button 
+            <button
               onClick={() => setUserRole(userRole === 'artist' ? 'buyer' : 'artist')}
               className="bg-black/30 border border-[#f3e5ab]/50 text-[#f3e5ab] text-[10px] px-2 py-0.5 rounded-full font-sans font-bold hover:bg-[#f3e5ab] hover:text-black transition cursor-pointer"
             >
@@ -200,7 +310,6 @@ function App() {
           <p className="text-[11px] text-white font-light">Cooperativa de Arte Universal Tokenizada</p>
         </header>
 
-        {/* Vista de Perfil Personal con sus Obras */}
         {activeTab === 'profile' && currentUser ? (
           <main className="my-auto py-4 max-w-3xl mx-auto w-full bg-black/60 backdrop-blur-md p-6 rounded-2xl border border-[#f3e5ab]/40">
             <div className="flex items-center gap-4 border-b border-white/20 pb-4">
@@ -223,17 +332,17 @@ function App() {
               </div>
 
               <div>
-                <h3 className="text-xs uppercase text-[#f3e5ab] font-bold mb-2">🖼️ Obras Cargadas en mi Perfil ({currentUser.myWorks?.length || 0})</h3>
-                {currentUser.myWorks && currentUser.myWorks.length > 0 ? (
+                <h3 className="text-xs uppercase text-[#f3e5ab] font-bold mb-2">🖼️ Obras Cargadas en mi Perfil ({myWorks.length})</h3>
+                {myWorks.length > 0 ? (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-52 overflow-y-auto pr-1">
-                    {currentUser.myWorks.map((work, index) => (
-                      <div key={index} className="bg-black/40 p-3 rounded-xl border border-[#f3e5ab]/30 flex justify-between items-center text-xs">
+                    {myWorks.map((work) => (
+                      <div key={work.id} className="bg-black/40 p-3 rounded-xl border border-[#f3e5ab]/30 flex justify-between items-center text-xs">
                         <div>
                           <p className="font-bold text-white text-sm">{work.title}</p>
-                          <p className="text-[10px] text-[#4ade80]">{work.isTokenized ? 'Tokenizada (Financiación Activa)' : 'Exhibición Libre'}</p>
+                          <p className="text-[10px] text-[#4ade80]">{work.is_tokenized ? 'Tokenizada (Financiación Activa)' : 'Exhibición Libre'}</p>
                         </div>
                         <span className="text-xs bg-[#f3e5ab]/20 text-[#f3e5ab] px-2.5 py-1 rounded-lg border border-[#f3e5ab]/40 font-bold">
-                          {work.type === 'fractional' ? `$${work.tokenPrice} USDT` : 'Muestra'}
+                          {work.token_type === 'fractional' ? `$${work.price} USDT` : 'Muestra'}
                         </span>
                       </div>
                     ))}
@@ -255,7 +364,7 @@ function App() {
           </main>
         ) : (
           <main className="grid grid-cols-1 md:grid-cols-4 gap-4 my-auto py-3 items-start">
-            
+
             <div className="flex flex-col gap-2 items-start">
               <div className="bg-black/20 backdrop-blur-md p-3 rounded-xl border border-[#f3e5ab]/30 w-fit">
                 {currentUser ? (
@@ -271,7 +380,7 @@ function App() {
                     </div>
                     <div className="flex gap-2 mt-1">
                       <button onClick={() => setActiveTab('profile')} className="bg-[#f3e5ab]/20 border border-[#f3e5ab] text-[#f3e5ab] px-2.5 py-1 rounded text-[10px] hover:bg-[#f3e5ab] hover:text-black transition cursor-pointer font-bold">
-                        👤 Mi Perfil ({currentUser.myWorks?.length || 0})
+                        👤 Mi Perfil ({myWorks.length})
                       </button>
                       <button onClick={handleLogout} className="bg-red-950/40 border border-red-500/40 text-red-300 px-2.5 py-1 rounded text-[10px] hover:bg-red-600 hover:text-white transition cursor-pointer">
                         Salir
@@ -294,7 +403,7 @@ function App() {
                 <p className="text-[10px] text-gray-200">Saldo: ${balanceUSDT.toFixed(2)} USDT</p>
               </button>
               <button onClick={() => setActiveTab('tokens')} className="bg-black/20 backdrop-blur-md px-3 py-2 rounded-xl border border-white/20 hover:border-[#f3e5ab] text-left transition text-xs w-fit hover:bg-black/40 cursor-pointer">
-                <h3 className="font-bold text-[#f3e5ab]">📜 Mis Tokens</h3>
+                <h3 className="font-bold text-[#f3e5ab]">📜 Mis Tokens ({myTokens.length})</h3>
               </button>
             </div>
 
@@ -303,24 +412,24 @@ function App() {
                 <div className="bg-black/20 backdrop-blur-md p-3 rounded-xl border border-[#f3e5ab]/30">
                   <h3 className="text-[11px] uppercase font-bold text-[#f3e5ab] mb-1">Publicar y Cargar Obra</h3>
                   <form onSubmit={handleCreatePost} className="space-y-2 text-xs">
-                    <textarea 
-                      rows="2" 
-                      value={newPostContent} 
-                      onChange={(e) => setNewPostContent(e.target.value)} 
+                    <textarea
+                      rows="2"
+                      value={newPostContent}
+                      onChange={(e) => setNewPostContent(e.target.value)}
                       placeholder={currentUser ? "Comparte novedades sobre tu arte..." : "⚠️ Inicia sesión para publicar..."}
                       className="w-full bg-black/30 border border-white/20 rounded p-2 text-white focus:outline-none focus:border-[#f3e5ab]"
                       disabled={!currentUser}
                     />
                     <div className="flex flex-col gap-2 bg-black/20 p-2 rounded border border-dashed border-white/20 text-[11px]">
                       <input type="text" placeholder="Nombre de la obra (ej: Mi Gran Obra)" value={newWorkTitle} onChange={(e) => setNewWorkTitle(e.target.value)} className="w-full bg-black/30 border border-white/20 p-1 rounded text-white" disabled={!currentUser}/>
-                      
+
                       {newWorkTitle && (
                         <div className="flex items-center gap-2 flex-wrap">
                           <label className="flex items-center gap-1 text-[10px] text-[#f3e5ab] cursor-pointer">
                             <input type="checkbox" checked={wantsToTokenize} onChange={(e) => setWantsToTokenize(e.target.checked)} />
                             ¿Tokenizar para venta?
                           </label>
-                          
+
                           {wantsToTokenize && (
                             <>
                               <select value={tokenTypeSelection} onChange={(e) => setTokenTypeSelection(e.target.value)} className="bg-black border border-white/20 text-[#f3e5ab] p-1 rounded text-[10px]">
@@ -345,28 +454,28 @@ function App() {
                   <div key={post.id} className="bg-black/20 backdrop-blur-md p-3 rounded-xl border border-white/20 text-xs">
                     <div className="flex justify-between items-center mb-1">
                       <div className="flex items-center gap-2">
-                        <span className="font-bold text-[#f3e5ab]">{post.artistName}</span>
-                        <span className={`text-[9px] px-1 rounded border ${post.curated ? 'bg-yellow-950/60 text-yellow-300 border-yellow-500/40' : 'bg-gray-800 text-gray-300 border-gray-600'}`}>
-                          {post.curated ? `Verificado` : 'Público'}
+                        <span className="font-bold text-[#f3e5ab]">{post.profiles?.name || 'Usuario'}</span>
+                        <span className={`text-[9px] px-1 rounded border ${post.profiles?.curated ? 'bg-yellow-950/60 text-yellow-300 border-yellow-500/40' : 'bg-gray-800 text-gray-300 border-gray-600'}`}>
+                          {post.profiles?.curated ? `Verificado` : 'Público'}
                         </span>
                       </div>
-                      <span className="text-[10px] text-gray-300">{post.time}</span>
+                      <span className="text-[10px] text-gray-300">{new Date(post.created_at).toLocaleString()}</span>
                     </div>
                     <p className="text-gray-100 my-2">{post.content}</p>
 
-                    {post.workLinked && (
+                    {post.works && (
                       <div className="p-2 bg-black/30 rounded border border-[#f3e5ab]/40 flex justify-between items-center my-2">
                         <div>
-                          <p className="font-bold text-white">{post.workLinked.title}</p>
-                          {post.workLinked.isTokenized ? (
+                          <p className="font-bold text-white">{post.works.title}</p>
+                          {post.works.is_tokenized ? (
                             <p className="text-[10px] text-[#4ade80]">Financiación Habilitada</p>
                           ) : (
                             <p className="text-[10px] text-gray-400">Exhibición Pública</p>
                           )}
                         </div>
-                        {post.workLinked.isTokenized ? (
-                          <button onClick={() => handleBuyToken(post.workLinked)} className="bg-[#f3e5ab] text-black font-bold px-3 py-1 rounded text-[10px] hover:bg-white transition cursor-pointer">
-                            {post.workLinked.type === 'fractional' ? `Comprar Token` : `Adquirir Obra`}
+                        {post.works.is_tokenized ? (
+                          <button onClick={() => handleBuyToken(post.works)} className="bg-[#f3e5ab] text-black font-bold px-3 py-1 rounded text-[10px] hover:bg-white transition cursor-pointer">
+                            {post.works.token_type === 'fractional' ? `Comprar Token` : `Adquirir Obra`}
                           </button>
                         ) : (
                           <span className="text-[9px] bg-gray-800 text-gray-400 px-2 py-1 rounded border border-gray-700">No Tokenizado</span>
@@ -380,31 +489,30 @@ function App() {
 
             <div className="flex flex-col gap-2 items-end">
               <div className="bg-black/20 backdrop-blur-md p-3 rounded-xl border border-white/20 text-xs w-fit">
-                <h3 className="font-bold text-[#f3e5ab] mb-2 uppercase text-[11px]">🏆 Top Ranking Curado</h3>
+                <h3 className="font-bold text-[#f3e5ab] mb-2 uppercase text-[11px]">🏆 Artistas Verificados</h3>
                 <div className="space-y-2">
-                  {artists.map((artist) => (
+                  {artists.length > 0 ? artists.map((artist) => (
                     <div key={artist.id} className="flex justify-between items-center gap-4 border-b border-white/10 pb-1">
                       <div>
-                        <p className="font-bold text-white">{artist.rank} {artist.name}</p>
-                        <p className="text-[9px] text-[#4ade80]">APY Est: {artist.APY}</p>
+                        <p className="font-bold text-white">{artist.name}</p>
+                        <p className="text-[9px] text-gray-400">@{artist.username}</p>
                       </div>
-                      <button className="bg-[#f3e5ab]/20 border border-[#f3e5ab] text-[#f3e5ab] px-2 py-0.5 rounded text-[10px] hover:bg-[#f3e5ab] hover:text-black transition cursor-pointer">
-                        {artist.isSubscribed ? 'Suscrito ✓' : '+ Seguir'}
-                      </button>
+                      <span className="text-[9px] bg-green-950/60 text-green-300 border border-green-500/40 px-2 py-0.5 rounded-full">✓</span>
                     </div>
-                  ))}
+                  )) : (
+                    <p className="text-[10px] text-gray-400">Todavía no hay artistas verificados.</p>
+                  )}
                 </div>
               </div>
             </div>
           </main>
         )}
 
-        {/* Modales */}
         {activeTab !== 'home' && activeTab !== 'profile' && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md">
             <div className="bg-[#121212]/90 border border-[#f3e5ab]/40 rounded-xl p-5 max-w-md w-full text-white relative">
               <button onClick={() => setActiveTab('home')} className="absolute top-2 right-3 text-gray-400 hover:text-white cursor-pointer">✕</button>
-              
+
               {activeTab === 'register' && (
                 <div>
                   <h3 className="font-bold text-[#f3e5ab] mb-2 text-sm">📝 Registro de Artista / Comprador</h3>
@@ -484,12 +592,14 @@ function App() {
                 <div>
                   <h3 className="font-bold text-[#f3e5ab] mb-2">📜 Mis Tokens</h3>
                   <div className="space-y-2 max-h-40 overflow-y-auto text-xs">
-                    {myTokens.map(t => (
+                    {myTokens.length > 0 ? myTokens.map(t => (
                       <div key={t.id} className="p-2 bg-black/50 border border-white/10 rounded flex justify-between">
-                        <span>{t.title}</span>
-                        <span className="text-[#4ade80]">${t.valueUSDT} USDT</span>
+                        <span>{t.works?.title || 'Obra'}</span>
+                        <span className="text-[#4ade80]">${((t.works?.price || 0) * t.quantity).toFixed(2)} USDT</span>
                       </div>
-                    ))}
+                    )) : (
+                      <p className="text-gray-400 text-[11px]">Todavía no tenés tokens comprados.</p>
+                    )}
                   </div>
                 </div>
               )}

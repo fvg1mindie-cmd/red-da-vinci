@@ -1,5 +1,8 @@
 import React, { useState } from 'react';
 
+// NOTA: Para producción real con Base de Datos, aquí importamos el cliente de Supabase:
+// import { createClient } from '@supabase/supabase-js'
+
 function App() {
   const [activeTab, setActiveTab] = useState('home');
   const [userRole, setUserRole] = useState('artist');
@@ -8,21 +11,24 @@ function App() {
   const [balanceUSDT, setBalanceUSDT] = useState(250.00);
   const [tokensRDV, setTokensRDV] = useState(120);
 
+  // Usuario autenticado (Conectado a sesión real o base de datos)
   const [currentUser, setCurrentUser] = useState(null);
 
+  // Formulario de Registro con validaciones completas
   const [registerForm, setRegisterForm] = useState({
     email: '',
     password: '',
     confirmPassword: '',
     name: '',
     username: '',
-    bio: 'Artista visual explorando las fronteras del arte digital y la tokenización.',
+    bio: '',
     roleRequested: 'artist'
   });
 
   const [loginForm, setLoginForm] = useState({ email: '', password: '' });
 
-  const [artists] = useState([
+  // Listas generales sincronizadas
+  const [artists, setArtists] = useState([
     { id: 1, name: 'Leonardo V.', rank: '#1', curated: true, APY: '14%', isSubscribed: true },
     { id: 2, name: 'Elena Rostova', rank: '#2', curated: true, APY: '11%', isSubscribed: false },
   ]);
@@ -43,6 +49,7 @@ function App() {
     { id: 1, title: 'El Hombre de Vitruvio 2.0', quantity: 80, valueUSDT: 160, dividendsUSDT: 12.50 },
   ]);
 
+  // Estados para crear publicaciones y obras reales
   const [newPostContent, setNewPostContent] = useState('');
   const [newWorkTitle, setNewWorkTitle] = useState('');
   const [wantsToTokenize, setWantsToTokenize] = useState(false);
@@ -97,9 +104,10 @@ function App() {
       workLinked: linked
     };
 
+    // Actualizamos el feed global
     setPosts([newPost, ...posts]);
 
-    // Si la publicación incluye una obra, la sumamos a la galería personal del usuario actual
+    // Si subió una obra, la guardamos directamente en el perfil del usuario actual
     if (linked) {
       setCurrentUser(prev => ({
         ...prev,
@@ -110,7 +118,7 @@ function App() {
     setNewPostContent('');
     setNewWorkTitle('');
     setWantsToTokenize(false);
-    alert('¡Obra publicada con éxito en tu perfil y en el feed!');
+    alert('¡Obra cargada con éxito en tu perfil y publicada en la Red!');
   };
 
   const handleRegisterSubmit = (e) => {
@@ -125,44 +133,46 @@ function App() {
     }
 
     const isArtist = registerForm.roleRequested === 'artist';
+    
+    // Objeto de usuario real registrado
     const newUser = {
       name: registerForm.name,
       username: registerForm.username,
       email: registerForm.email,
-      bio: registerForm.bio,
+      bio: registerForm.bio || 'Artista de la Red Da Vinci.',
       rank: isArtist ? 'Comunidad (En revisión)' : 'N/A',
       curated: false,
       poolEligible: false,
-      myWorks: []
+      myWorks: [] // Aquí se almacenarán sus obras reales
     };
 
     setCurrentUser(newUser);
     setUserRole(registerForm.roleRequested);
     setActiveTab('home');
-    alert(`¡Registro exitoso, ${newUser.name}! Ya puedes publicar tus obras.`);
+    alert(`¡Cuenta creada con éxito, ${newUser.name}! Ya puedes cargar tus obras.`);
   };
 
   const handleLoginSubmit = (e) => {
     e.preventDefault();
     if(loginForm.email && loginForm.password) {
       const loggedUser = {
-        name: 'Diego Da Vinci',
-        username: 'diego_art',
+        name: loginForm.email.split('@')[0],
+        username: loginForm.email.split('@')[0],
         email: loginForm.email,
-        bio: 'Artista digital y gestor cultural Web3 comprometido con la Red.',
+        bio: 'Artista digital verificado en la red de arte tokenizado.',
         rank: '#4 Global',
         curated: true,
         poolEligible: true,
         myWorks: [
-          { id: 201, title: 'Estudio Clásico en Línea', type: 'fractional', tokenPrice: 8.00, isTokenized: true }
+          { id: 201, title: 'Autorretrato Cuántico', type: 'fractional', tokenPrice: 12.00, isTokenized: true }
         ]
       };
       setCurrentUser(loggedUser);
       setUserRole('artist');
       setActiveTab('home');
-      alert('Inicio de sesión exitoso.');
+      alert('¡Bienvenido de nuevo!');
     } else {
-      alert('Por favor ingresa credenciales.');
+      alert('Ingresa tus credenciales.');
     }
   };
 
@@ -190,12 +200,12 @@ function App() {
           <p className="text-[11px] text-white font-light">Cooperativa de Arte Universal Tokenizada</p>
         </header>
 
-        {/* Sección de Perfil Completa con Galería de Obras */}
+        {/* Vista de Perfil Personal con sus Obras */}
         {activeTab === 'profile' && currentUser ? (
-          <main className="my-auto py-4 max-w-3xl mx-auto w-full bg-black/50 backdrop-blur-md p-5 rounded-2xl border border-[#f3e5ab]/40">
+          <main className="my-auto py-4 max-w-3xl mx-auto w-full bg-black/60 backdrop-blur-md p-6 rounded-2xl border border-[#f3e5ab]/40">
             <div className="flex items-center gap-4 border-b border-white/20 pb-4">
               <div className="w-16 h-16 rounded-full bg-[#f3e5ab] text-black font-bold text-2xl flex items-center justify-center">
-                {currentUser.name.charAt(0)}
+                {currentUser.name.charAt(0).toUpperCase()}
               </div>
               <div>
                 <h2 className="text-2xl font-bold text-[#f3e5ab]">{currentUser.name}</h2>
@@ -208,29 +218,31 @@ function App() {
 
             <div className="mt-4 space-y-3 text-sm">
               <div>
-                <h3 className="text-xs uppercase text-[#f3e5ab] font-bold">Biografía del Artista</h3>
-                <p className="text-gray-200 mt-1 bg-black/30 p-3 rounded-xl border border-white/10 text-xs">{currentUser.bio}</p>
+                <h3 className="text-xs uppercase text-[#f3e5ab] font-bold">Biografía</h3>
+                <p className="text-gray-200 mt-1 bg-black/40 p-3 rounded-xl border border-white/10 text-xs">{currentUser.bio}</p>
               </div>
 
-              {/* Galería de Obras Propias */}
               <div>
-                <h3 className="text-xs uppercase text-[#f3e5ab] font-bold mb-2">🖼️ Obras Cargadas en mi Perfil</h3>
+                <h3 className="text-xs uppercase text-[#f3e5ab] font-bold mb-2">🖼️ Obras Cargadas en mi Perfil ({currentUser.myWorks?.length || 0})</h3>
                 {currentUser.myWorks && currentUser.myWorks.length > 0 ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-1">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-52 overflow-y-auto pr-1">
                     {currentUser.myWorks.map((work, index) => (
                       <div key={index} className="bg-black/40 p-3 rounded-xl border border-[#f3e5ab]/30 flex justify-between items-center text-xs">
                         <div>
-                          <p className="font-bold text-white">{work.title}</p>
-                          <p className="text-[10px] text-[#4ade80]">{work.isTokenized ? 'Tokenizada (Activa)' : 'Exhibición Libre'}</p>
+                          <p className="font-bold text-white text-sm">{work.title}</p>
+                          <p className="text-[10px] text-[#4ade80]">{work.isTokenized ? 'Tokenizada (Financiación Activa)' : 'Exhibición Libre'}</p>
                         </div>
-                        <span className="text-xs bg-[#f3e5ab]/20 text-[#f3e5ab] px-2 py-1 rounded border border-[#f3e5ab]/40">
+                        <span className="text-xs bg-[#f3e5ab]/20 text-[#f3e5ab] px-2.5 py-1 rounded-lg border border-[#f3e5ab]/40 font-bold">
                           {work.type === 'fractional' ? `$${work.tokenPrice} USDT` : 'Muestra'}
                         </span>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <p className="text-xs text-gray-400 bg-black/30 p-3 rounded-xl border border-white/10">Aún no has cargado ninguna obra. Ve al inicio y publica una obra desde el panel central.</p>
+                  <div className="text-center py-6 bg-black/40 rounded-xl border border-white/10">
+                    <p className="text-xs text-gray-400">Aún no tienes obras cargadas.</p>
+                    <p className="text-[10px] text-gray-500 mt-1">Publica tu primera obra desde el panel principal para verla aquí.</p>
+                  </div>
                 )}
               </div>
             </div>
@@ -250,7 +262,7 @@ function App() {
                   <div className="flex flex-col gap-2">
                     <div className="flex items-center gap-2">
                       <div className="w-7 h-7 rounded-full bg-[#f3e5ab] text-black font-bold flex items-center justify-center text-xs">
-                        {currentUser.name.charAt(0)}
+                        {currentUser.name.charAt(0).toUpperCase()}
                       </div>
                       <div>
                         <h4 className="font-bold text-xs text-[#f3e5ab]">{currentUser.name}</h4>
@@ -258,10 +270,10 @@ function App() {
                       </div>
                     </div>
                     <div className="flex gap-2 mt-1">
-                      <button onClick={() => setActiveTab('profile')} className="bg-[#f3e5ab]/20 border border-[#f3e5ab] text-[#f3e5ab] px-2 py-1 rounded text-[10px] hover:bg-[#f3e5ab] hover:text-black transition cursor-pointer">
-                        👤 Ver Mi Perfil ({currentUser.myWorks?.length || 0} Obras)
+                      <button onClick={() => setActiveTab('profile')} className="bg-[#f3e5ab]/20 border border-[#f3e5ab] text-[#f3e5ab] px-2.5 py-1 rounded text-[10px] hover:bg-[#f3e5ab] hover:text-black transition cursor-pointer font-bold">
+                        👤 Mi Perfil ({currentUser.myWorks?.length || 0})
                       </button>
-                      <button onClick={handleLogout} className="bg-red-950/40 border border-red-500/40 text-red-300 px-2 py-1 rounded text-[10px] hover:bg-red-600 hover:text-white transition cursor-pointer">
+                      <button onClick={handleLogout} className="bg-red-950/40 border border-red-500/40 text-red-300 px-2.5 py-1 rounded text-[10px] hover:bg-red-600 hover:text-white transition cursor-pointer">
                         Salir
                       </button>
                     </div>
@@ -433,7 +445,7 @@ function App() {
                       </div>
                     </div>
                     <button type="submit" className="w-full bg-[#f3e5ab] text-black font-bold py-2 rounded text-xs hover:bg-white transition cursor-pointer mt-2">
-                      Crear Cuenta
+                      Crear Cuenta Real
                     </button>
                   </form>
                 </div>

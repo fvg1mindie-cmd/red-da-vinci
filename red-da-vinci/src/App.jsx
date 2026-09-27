@@ -24,6 +24,7 @@ function App() {
   });
 
   const [loginForm, setLoginForm] = useState({ email: '', password: '' });
+  const [rememberMe, setRememberMe] = useState(false);
 
   // Visibilidad de contraseñas
   const [showRegPassword, setShowRegPassword] = useState(false);
@@ -59,6 +60,15 @@ function App() {
     });
 
     return () => listener.subscription.unsubscribe();
+  }, []);
+
+  // Recordar email
+  useEffect(() => {
+    const savedEmail = localStorage.getItem('reddavinci_remembered_email');
+    if (savedEmail) {
+      setLoginForm(prev => ({ ...prev, email: savedEmail }));
+      setRememberMe(true);
+    }
   }, []);
 
   // Carga perfil. Si no existe, lo crea automáticamente con los datos del metadata
@@ -313,7 +323,14 @@ function App() {
       return;
     }
 
-    // 🔥 Cambio clave: después del login vamos directo al muro personal
+    // Recordar o olvidar email
+    if (rememberMe) {
+      localStorage.setItem('reddavinci_remembered_email', loginForm.email);
+    } else {
+      localStorage.removeItem('reddavinci_remembered_email');
+    }
+
+    // Después del login vamos directo al muro personal
     setActiveTab('profile');
     alert('¡Bienvenido a tu muro!');
   };
@@ -333,26 +350,33 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-white font-serif relative overflow-x-hidden"
+    <div className="min-h-screen text-white font-serif relative overflow-x-hidden"
          style={{
-           backgroundImage: `url('https://upload.wikimedia.org/wikipedia/commons/thumb/2/22/Da_Vinci_Vitruve_Luc_Viatour.jpg/1200px-Da_Vinci_Vitruve_Luc_Viatour.jpg')`,
+           backgroundColor: '#0a0a0a',
+           backgroundImage: `
+             linear-gradient(rgba(10,10,10,0.82), rgba(10,10,10,0.88)),
+             url('https://upload.wikimedia.org/wikipedia/commons/2/22/Da_Vinci_Vitruve_Luc_Viatour.jpg')
+           `,
            backgroundSize: 'cover',
-           backgroundPosition: 'center',
-           backgroundAttachment: 'fixed'
+           backgroundPosition: 'center top',
+           backgroundAttachment: 'fixed',
+           backgroundRepeat: 'no-repeat'
          }}>
-      <div className="absolute inset-0 bg-black/70"></div>
+      
+      {/* Overlay extra para profundidad */}
+      <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-black/60 pointer-events-none"></div>
       
       <div className="relative z-10 max-w-6xl mx-auto px-3 py-4 min-h-screen flex flex-col">
         
         {/* Header */}
-        <header className="text-center mb-4">
-          <h1 className="text-3xl md:text-4xl font-bold text-[#f3e5ab] tracking-widest drop-shadow-lg">
+        <header className="text-center mb-6">
+          <h1 className="text-4xl md:text-5xl font-bold text-[#f3e5ab] tracking-[0.2em] drop-shadow-[0_2px_8px_rgba(243,229,171,0.35)]">
             RED DA VINCI
           </h1>
-          <p className="text-xs text-gray-300 mt-1">Cooperativa de Arte Universal Tokenizada</p>
-          <div className="mt-2 inline-flex items-center gap-2 bg-black/40 border border-[#f3e5ab]/40 px-3 py-1 rounded-full text-[11px]">
+          <p className="text-sm text-[#e8d9a0]/80 mt-1.5 tracking-wide">Cooperativa de Arte Universal Tokenizada</p>
+          <div className="mt-3 inline-flex items-center gap-2 bg-black/50 backdrop-blur-sm border border-[#f3e5ab]/50 px-4 py-1.5 rounded-full text-xs shadow-lg">
             <span className="text-[#f3e5ab]">Modo:</span>
-            <span className="font-bold text-white">🎨 Artista</span>
+            <span className="font-bold text-[#f3e5ab]">🎨 Artista</span>
           </div>
         </header>
 
@@ -671,9 +695,9 @@ function App() {
                     )}
                   </div>
                 )) : (
-                  <div className="text-center py-10 bg-black/30 rounded-xl border border-white/10">
-                    <p className="text-gray-400 text-sm">Aún no hay publicaciones en la Red.</p>
-                    <p className="text-xs text-gray-500 mt-1">Sé el primero en compartir una obra.</p>
+                  <div className="text-center py-12 bg-black/40 backdrop-blur-md rounded-2xl border border-[#f3e5ab]/20 shadow-inner">
+                    <p className="text-[#f3e5ab]/70 text-base tracking-wide">Aún no hay publicaciones en la Red.</p>
+                    <p className="text-xs text-gray-400 mt-2">Sé el primero en compartir una obra.</p>
                   </div>
                 )}
               </div>
@@ -750,7 +774,18 @@ function App() {
                         {showLoginPassword ? <EyeOff size={14} /> : <Eye size={14} />}
                       </button>
                     </div>
-                    <button type="submit" className="w-full bg-[#f3e5ab] text-black font-bold py-2.5 rounded-xl text-sm hover:bg-white transition mt-2">
+                    
+                    <label className="flex items-center gap-2 cursor-pointer select-none py-1">
+                      <input
+                        type="checkbox"
+                        checked={rememberMe}
+                        onChange={(e) => setRememberMe(e.target.checked)}
+                        className="accent-[#f3e5ab] w-3.5 h-3.5"
+                      />
+                      <span className="text-[11px] text-gray-300">Recordar mi cuenta</span>
+                    </label>
+
+                    <button type="submit" className="w-full bg-[#f3e5ab] text-black font-bold py-2.5 rounded-xl text-sm hover:bg-white transition mt-1">
                       Ingresar
                     </button>
                   </form>

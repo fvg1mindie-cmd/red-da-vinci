@@ -201,7 +201,7 @@ function App() {
       alert('Solo imágenes o videos cortos.');
       return;
     }
-    if (file.size > 15 * 1024 * 1024) { alert('Máximo 15 MB para procesos.'); return; }
+    if (file.size > 15 * 1024 * 1024) { alert('Máximo 15 MB.'); return; }
     setStoryFile(file);
     setStoryPreview(URL.createObjectURL(file));
   };
@@ -239,10 +239,10 @@ function App() {
       clearStoryFile();
       setShowAddStory(false);
       loadStories();
-      alert('¡Proceso publicado! Se eliminará automáticamente en 24 horas.');
+      alert('¡Publicado! Se eliminará automáticamente en 24 horas.');
     } catch (err) {
       console.error(err);
-      alert('Error al publicar proceso: ' + (err.message || 'Revisá que exista la tabla "procesos" y el bucket "artworks".'));
+      alert('Error al publicar: ' + (err.message || 'Revisá que exista la tabla "procesos" y el bucket "artworks".'));
     } finally {
       setUploadingStory(false);
     }
@@ -440,7 +440,7 @@ function App() {
               {viewingStories.stories[viewingStories.index]?.media_type === 'video' ? (
                 <video src={viewingStories.stories[viewingStories.index].media_url} className="max-h-full max-w-full" autoPlay controls />
               ) : (
-                <img src={viewingStories.stories[viewingStories.index]?.media_url} alt="Proceso" className="max-h-full max-w-full object-contain" />
+                <img src={viewingStories.stories[viewingStories.index]?.media_url} alt="En el taller" className="max-h-full max-w-full object-contain" />
               )}
               <button onClick={(e) => { e.stopPropagation(); prevStory(); }} className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/40 p-2 rounded-full text-white">
                 <ChevronLeft size={24} />
@@ -457,7 +457,7 @@ function App() {
           <div className="fixed inset-0 z-[90] bg-black/80 flex items-center justify-center p-4">
             <div className="bg-[#111] border border-[#f3e5ab]/40 rounded-2xl p-5 w-full max-w-md">
               <div className="flex justify-between items-center mb-4">
-                <h3 className="text-[#f3e5ab] font-bold">Nuevo Proceso</h3>
+                <h3 className="text-[#f3e5ab] font-bold">En el taller</h3>
                 <button onClick={() => { setShowAddStory(false); clearStoryFile(); }}><X size={20} className="text-gray-400" /></button>
               </div>
               <input type="file" accept="image/*,video/*" capture="environment" onChange={handleStoryFileChange}
@@ -474,7 +474,7 @@ function App() {
               )}
               <button onClick={handleCreateStory} disabled={!storyFile || uploadingStory}
                       className="mt-4 w-full bg-[#f3e5ab] text-black font-bold py-2.5 rounded-xl disabled:opacity-50">
-                {uploadingStory ? 'Publicando...' : 'Publicar Proceso (24h)'}
+                {uploadingStory ? 'Publicando...' : 'Publicar (24h)'}
               </button>
             </div>
           </div>
@@ -497,8 +497,8 @@ function App() {
                 </span>
               </div>
               <div className="flex flex-col gap-2">
-                <button onClick={() => setShowAddStory(true)} className="text-[11px] bg-[#f3e5ab]/20 border border-[#f3e5ab] text-[#f3e5ab] px-3 py-1.5 rounded-lg hover:bg-[#f3e5ab] hover:text-black transition font-bold">
-                  + Proceso
+                <button onClick={() => setShowAddStory(true)} title="Subí una foto o video corto de cómo estás trabajando. Se borra automáticamente a las 24 horas." className="text-[11px] bg-[#f3e5ab]/20 border border-[#f3e5ab] text-[#f3e5ab] px-3 py-1.5 rounded-lg hover:bg-[#f3e5ab] hover:text-black transition font-bold">
+                  + En el taller
                 </button>
                 <button onClick={handleLogout} className="text-[11px] bg-red-950/40 border border-red-500/40 text-red-300 px-3 py-1.5 rounded-lg hover:bg-red-600 hover:text-white transition">
                   Salir
@@ -652,11 +652,11 @@ function App() {
               <div className="bg-black/40 backdrop-blur-md p-3 rounded-xl border border-[#f3e5ab]/20 overflow-x-auto">
                 <div className="flex gap-3 items-center">
                   {currentUser && (
-                    <button onClick={() => setShowAddStory(true)} className="flex flex-col items-center gap-1 flex-shrink-0">
+                    <button onClick={() => setShowAddStory(true)} title="Subí una foto o video corto de cómo estás trabajando. Se borra automáticamente a las 24 horas." className="flex flex-col items-center gap-1 flex-shrink-0">
                       <div className="w-14 h-14 rounded-full border-2 border-dashed border-[#f3e5ab] flex items-center justify-center bg-black/50">
                         <Plus size={22} className="text-[#f3e5ab]" />
                       </div>
-                      <span className="text-[9px] text-gray-300">Tu proceso</span>
+                      <span className="text-[9px] text-gray-300">En el taller</span>
                     </button>
                   )}
                   {storiesByUser.map((group) => (

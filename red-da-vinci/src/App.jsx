@@ -350,23 +350,13 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen text-white font-serif relative overflow-x-hidden"
-         style={{
-           backgroundColor: '#0a0a0a',
-           backgroundImage: `
-             linear-gradient(rgba(10,10,10,0.82), rgba(10,10,10,0.88)),
-             url('https://upload.wikimedia.org/wikipedia/commons/2/22/Da_Vinci_Vitruve_Luc_Viatour.jpg')
-           `,
-           backgroundSize: 'cover',
-           backgroundPosition: 'center top',
-           backgroundAttachment: 'fixed',
-           backgroundRepeat: 'no-repeat'
-         }}>
-      
-      {/* Overlay extra para profundidad */}
-      <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-black/60 pointer-events-none"></div>
-      
-      <div className="relative z-10 max-w-6xl mx-auto px-3 py-4 min-h-screen flex flex-col">
+    <div className="min-h-screen bg-[#0a0a0a] text-white font-serif relative flex flex-col justify-between p-3 md:p-4 overflow-x-hidden">
+      {/* Imagen original del proyecto */}
+      <div className="absolute inset-0 z-0 bg-center bg-cover bg-no-repeat opacity-95 pointer-events-none" 
+           style={{ backgroundImage: `url('/lo1.jpg')` }}>
+      </div>
+
+      <div className="relative z-10 max-w-6xl mx-auto w-full min-h-screen flex flex-col drop-shadow-[0_2px_10px_rgba(0,0,0,0.9)]">
         
         {/* Header */}
         <header className="text-center mb-6">

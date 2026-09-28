@@ -34,15 +34,15 @@ function App() {
   const [wantsToTokenize, setWantsToTokenize] = useState(false);
   const [tokenTypeSelection, setTokenTypeSelection] = useState('fractional');
   const [newWorkPrice, setNewWorkPrice] = useState(10);
-  const [selectedImage, setSelectedImage] = useState(null);
-  const [imagePreview, setImagePreview] = useState(null);
-  const [uploadingImage, setUploadingImage] = useState(false);
+  const [selectedMedia, setSelectedMedia] = useState(null);
+  const [mediaPreview, setMediaPreview] = useState(null);
+  const [uploadingMedia, setUploadingMedia] = useState(false);
 
   // Stories
   const [storyFile, setStoryFile] = useState(null);
   const [storyPreview, setStoryPreview] = useState(null);
   const [uploadingStory, setUploadingStory] = useState(false);
-  const [viewingStories, setViewingStories] = useState(null); // { userId, stories: [], index }
+  const [viewingStories, setViewingStories] = useState(null);
   const [showAddStory, setShowAddStory] = useState(false);
 
   useEffect(() => {
@@ -162,7 +162,6 @@ function App() {
     else console.log('Stories table may not exist yet:', error?.message);
   };
 
-  // Group stories by user for the bar
   const storiesByUser = React.useMemo(() => {
     const map = {};
     stories.forEach(s => {
@@ -179,19 +178,26 @@ function App() {
     return Object.values(map);
   }, [stories]);
 
-  const handleImageChange = (e) => {
+  const handleMediaChange = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!file.type.startsWith('image/')) { alert('Solo se permiten imágenes.'); return; }
-    if (file.size > 5 * 1024 * 1024) { alert('Máximo 5 MB.'); return; }
-    setSelectedImage(file);
-    setImagePreview(URL.createObjectURL(file));
+    if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) {
+      alert('Solo se permiten imágenes o videos.');
+      return;
+    }
+    const maxSize = file.type.startsWith('video/') ? 30 * 1024 * 1024 : 8 * 1024 * 1024;
+    if (file.size > maxSize) {
+      alert(file.type.startsWith('video/') ? 'Máximo 30 MB para video.' : 'Máximo 8 MB para imagen.');
+      return;
+    }
+    setSelectedMedia(file);
+    setMediaPreview(URL.createObjectURL(file));
   };
 
-  const clearImage = () => {
-    setSelectedImage(null);
-    if (imagePreview) URL.revokeObjectURL(imagePreview);
-    setImagePreview(null);
+  const clearMedia = () => {
+    setSelectedMedia(null);
+    if (mediaPreview) URL.revokeObjectURL(mediaPreview);
+    setMediaPreview(null);
   };
 
   const handleStoryFileChange = (e) => {
@@ -296,47 +302,50 @@ function App() {
   const handleCreatePost = async (e) => {
     e.preventDefault();
     if (!currentUser) { alert('⚠️ Debes iniciar sesión.'); return; }
-    if (!newPostContent && !newWorkTitle) { alert('Escribí un texto o el nombre de la obra.'); return; }
+    if (!newPostContent.trim() && !newWorkTitle.trim() && !selectedMedia) {
+      alert('Escribí algo, poné un título o subí una imagen/video.');
+      return;
+    }
 
     let workId = null;
-    let imageUrl = null;
+    let mediaUrl = null;
     const finalTokenType = wantsToTokenize && currentUser.curated ? tokenTypeSelection : 'showcase';
     const finalIsTokenized = wantsToTokenize && currentUser.curated;
 
-    if (selectedImage) {
-      setUploadingImage(true);
-      const fileExt = selectedImage.name.split('.').pop();
+    if (selectedMedia) {
+      setUploadingMedia(true);
+      const fileExt = selectedMedia.name.split('.').pop();
       const fileName = `${currentUser.id}/${Date.now()}.${fileExt}`;
-      const { error: uploadError } = await supabase.storage.from('artworks').upload(fileName, selectedImage);
+      const { error: uploadError } = await supabase.storage.from('artworks').upload(fileName, selectedMedia);
       if (uploadError) {
-        setUploadingImage(false);
-        alert('Error al subir imagen: ' + uploadError.message);
+        setUploadingMedia(false);
+        alert('Error al subir archivo: ' + uploadError.message);
         return;
       }
       const { data: publicUrlData } = supabase.storage.from('artworks').getPublicUrl(fileName);
-      imageUrl = publicUrlData.publicUrl;
-      setUploadingImage(false);
+      mediaUrl = publicUrlData.publicUrl;
+      setUploadingMedia(false);
     }
 
-    if (newWorkTitle) {
+    if (newWorkTitle.trim() || mediaUrl) {
       const payload = {
         artist_id: currentUser.id,
-        title: newWorkTitle,
+        title: newWorkTitle.trim() || 'Sin título',
         token_type: finalTokenType,
         price: finalIsTokenized ? Number(newWorkPrice) : 0,
         is_tokenized: finalIsTokenized
       };
-      if (imageUrl) payload.image_url = imageUrl;
+      if (mediaUrl) payload.image_url = mediaUrl;
 
       const { data: workData, error: workError } = await supabase.from('works').insert(payload).select().single();
       if (workError) { alert('Error al guardar obra: ' + workError.message); return; }
       workId = workData.id;
     }
 
-    if (newPostContent || workId) {
+    if (newPostContent.trim() || workId) {
       const { error: postError } = await supabase.from('posts').insert({
         author_id: currentUser.id,
-        content: newPostContent || `Nueva obra: ${newWorkTitle}`,
+        content: newPostContent.trim() || (newWorkTitle.trim() ? `Nueva obra: ${newWorkTitle.trim()}` : 'Nueva publicación'),
         work_id: workId
       });
       if (postError) { alert('Error al publicar: ' + postError.message); return; }
@@ -347,10 +356,10 @@ function App() {
     setWantsToTokenize(false);
     setTokenTypeSelection('fractional');
     setNewWorkPrice(10);
-    clearImage();
+    clearMedia();
     loadPosts();
     loadMyWorks(currentUser.id);
-    alert('¡Obra publicada con éxito!');
+    alert('¡Publicado con éxito!');
   };
 
   const handleRegisterSubmit = async (e) => {
@@ -404,13 +413,11 @@ function App() {
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white font-serif relative flex flex-col justify-between p-3 md:p-4 overflow-x-hidden">
-      {/* Imagen de fondo original */}
       <div className="absolute inset-0 z-0 bg-center bg-cover bg-no-repeat opacity-95 pointer-events-none"
            style={{ backgroundImage: `url('/lo1.jpg')` }} />
 
       <div className="relative z-10 max-w-6xl mx-auto w-full min-h-screen flex flex-col drop-shadow-[0_2px_10px_rgba(0,0,0,0.9)]">
 
-        {/* Header */}
         <header className="text-center mb-4">
           <h1 className="text-3xl md:text-4xl font-bold text-[#f3e5ab] tracking-[0.15em] drop-shadow-lg">
             RED DA VINCI
@@ -422,7 +429,6 @@ function App() {
           </div>
         </header>
 
-        {/* ===================== VISOR DE HISTORIAS ===================== */}
         {viewingStories && (
           <div className="fixed inset-0 z-[100] bg-black flex flex-col">
             <div className="absolute top-0 left-0 right-0 h-1 bg-white/20 flex gap-1 p-2 z-20">
@@ -452,7 +458,6 @@ function App() {
           </div>
         )}
 
-        {/* ===================== MODAL AGREGAR HISTORIA ===================== */}
         {showAddStory && (
           <div className="fixed inset-0 z-[90] bg-black/80 flex items-center justify-center p-4">
             <div className="bg-[#111] border border-[#f3e5ab]/40 rounded-2xl p-5 w-full max-w-md">
@@ -480,7 +485,6 @@ function App() {
           </div>
         )}
 
-        {/* ===================== VISTA PERFIL / MURO ===================== */}
         {activeTab === 'profile' && currentUser ? (
           <main className="my-auto py-4 max-w-3xl mx-auto w-full bg-black/70 backdrop-blur-md p-5 md:p-7 rounded-2xl border border-[#f3e5ab]/40 shadow-2xl">
             <div className="flex items-center gap-4 border-b border-white/20 pb-5">
@@ -515,41 +519,60 @@ function App() {
 
             {/* Formulario publicar obra */}
             <div className="mt-6 bg-black/50 border border-[#f3e5ab]/30 rounded-xl p-4">
-              <h3 className="text-sm font-bold text-[#f3e5ab] mb-3">🖼️ Publicar nueva obra en tu muro</h3>
-              <form onSubmit={handleCreatePost} className="space-y-3 text-sm">
+              <h3 className="text-sm font-bold text-[#f3e5ab] mb-3">🖼️ Publicar en tu muro</h3>
+              <form onSubmit={handleCreatePost} className="space-y-4 text-sm">
                 <div>
-                  <label className="text-[11px] text-gray-400 block mb-1">Texto / descripción (opcional)</label>
-                  <textarea rows="2" value={newPostContent} onChange={(e) => setNewPostContent(e.target.value)}
-                    placeholder="Contá algo sobre esta obra..." className="w-full bg-black/40 border border-white/20 rounded-lg p-2.5 text-white focus:outline-none focus:border-[#f3e5ab]" />
+                  <label className="text-[11px] text-gray-400 block mb-1.5">¿Qué querés compartir?</label>
+                  <textarea
+                    rows="5"
+                    value={newPostContent}
+                    onChange={(e) => setNewPostContent(e.target.value)}
+                    placeholder="Escribí lo que quieras... texto, ideas, proceso, lo que surja."
+                    className="w-full bg-black/40 border border-white/20 rounded-xl p-3.5 text-white text-sm leading-relaxed focus:outline-none focus:border-[#f3e5ab] resize-y min-h-[120px]"
+                  />
                 </div>
                 <div>
-                  <label className="text-[11px] text-gray-400 block mb-1">Nombre de la obra *</label>
-                  <input type="text" value={newWorkTitle} onChange={(e) => setNewWorkTitle(e.target.value)}
-                    placeholder="Ej: El Sueño de Vitruvio" className="w-full bg-black/40 border border-white/20 rounded-lg p-2.5 text-white focus:outline-none focus:border-[#f3e5ab]" required />
+                  <label className="text-[11px] text-gray-400 block mb-1.5">Título de la obra (opcional)</label>
+                  <input
+                    type="text"
+                    value={newWorkTitle}
+                    onChange={(e) => setNewWorkTitle(e.target.value)}
+                    placeholder="Ej: El Sueño de Vitruvio"
+                    className="w-full bg-black/40 border border-white/20 rounded-xl p-3 text-white focus:outline-none focus:border-[#f3e5ab]"
+                  />
                 </div>
                 <div>
-                  <label className="text-[11px] text-gray-400 block mb-1">Imagen de la obra</label>
-                  <input type="file" accept="image/*" capture="environment" onChange={handleImageChange}
-                    className="w-full text-xs text-gray-300 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-[#f3e5ab] file:text-black file:font-bold file:text-xs" />
-                  {imagePreview && (
-                    <div className="relative mt-2">
-                      <img src={imagePreview} alt="Preview" className="w-full max-h-48 object-contain rounded-lg border border-[#f3e5ab]/30" />
-                      <button type="button" onClick={clearImage} className="absolute top-2 right-2 bg-red-600/80 text-white text-xs px-2 py-1 rounded">Quitar</button>
+                  <label className="text-[11px] text-gray-400 block mb-1.5">Imagen o video (opcional)</label>
+                  <input
+                    type="file"
+                    accept="image/*,video/*"
+                    capture="environment"
+                    onChange={handleMediaChange}
+                    className="w-full text-xs text-gray-300 file:mr-3 file:py-2.5 file:px-4 file:rounded-lg file:border-0 file:bg-[#f3e5ab] file:text-black file:font-bold file:text-xs"
+                  />
+                  {mediaPreview && (
+                    <div className="relative mt-3">
+                      {selectedMedia?.type.startsWith('video/') ? (
+                        <video src={mediaPreview} controls className="w-full max-h-72 object-contain rounded-xl border border-[#f3e5ab]/30" />
+                      ) : (
+                        <img src={mediaPreview} alt="Preview" className="w-full max-h-72 object-contain rounded-xl border border-[#f3e5ab]/30" />
+                      )}
+                      <button type="button" onClick={clearMedia} className="absolute top-2 right-2 bg-red-600/90 text-white text-xs px-2.5 py-1 rounded-lg">Quitar</button>
                     </div>
                   )}
                 </div>
-                <div className="bg-black/30 rounded-lg p-3 border border-white/10">
-                  <p className="text-[11px] text-[#f3e5ab] font-bold mb-2">¿Cómo querés publicar esta obra?</p>
+                <div className="bg-black/30 rounded-xl p-3.5 border border-white/10">
+                  <p className="text-[11px] text-[#f3e5ab] font-bold mb-2">Tipo de publicación</p>
                   <div className="space-y-2">
-                    <label className="flex items-center gap-2 cursor-pointer">
+                    <label className="flex items-center gap-2.5 cursor-pointer">
                       <input type="radio" checked={!wantsToTokenize} onChange={() => setWantsToTokenize(false)} className="accent-[#f3e5ab]" />
                       <span className="text-sm">Solo exhibición</span>
                     </label>
-                    <label className="flex items-center gap-2 cursor-pointer">
+                    <label className="flex items-center gap-2.5 cursor-pointer">
                       <input type="radio" checked={wantsToTokenize && tokenTypeSelection === 'unique'} onChange={() => { setWantsToTokenize(true); setTokenTypeSelection('unique'); }} className="accent-[#f3e5ab]" />
                       <span className="text-sm">NFT único</span>
                     </label>
-                    <label className="flex items-center gap-2 cursor-pointer">
+                    <label className="flex items-center gap-2.5 cursor-pointer">
                       <input type="radio" checked={wantsToTokenize && tokenTypeSelection === 'fractional'} onChange={() => { setWantsToTokenize(true); setTokenTypeSelection('fractional'); }} className="accent-[#f3e5ab]" />
                       <span className="text-sm">Tokens fraccionados</span>
                     </label>
@@ -563,21 +586,26 @@ function App() {
                     </div>
                   )}
                 </div>
-                <button type="submit" disabled={uploadingImage}
-                  className="w-full bg-[#f3e5ab] text-black font-bold py-2.5 rounded-xl text-sm hover:bg-white transition disabled:opacity-60">
-                  {uploadingImage ? 'Subiendo imagen...' : 'Publicar en mi muro'}
+                <button type="submit" disabled={uploadingMedia}
+                  className="w-full bg-[#f3e5ab] text-black font-bold py-3 rounded-xl text-sm hover:bg-white transition disabled:opacity-60">
+                  {uploadingMedia ? 'Subiendo...' : 'Publicar'}
                 </button>
               </form>
             </div>
 
-            {/* Mis obras */}
             <div className="mt-7">
               <h3 className="text-xs uppercase tracking-wider text-[#f3e5ab] font-bold mb-3">🖼️ Mis obras ({myWorks.length})</h3>
               {myWorks.length > 0 ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-72 overflow-y-auto pr-1">
                   {myWorks.map((work) => (
                     <div key={work.id} className="bg-black/50 p-3.5 rounded-xl border border-[#f3e5ab]/25 overflow-hidden">
-                      {work.image_url && <img src={work.image_url} alt={work.title} className="w-full h-32 object-cover rounded-lg mb-2" />}
+                      {work.image_url && (
+                        work.image_url.match(/\.(mp4|webm|mov|ogg)(\?|$)/i) ? (
+                          <video src={work.image_url} className="w-full h-36 object-cover rounded-lg mb-2" muted />
+                        ) : (
+                          <img src={work.image_url} alt={work.title} className="w-full h-36 object-cover rounded-lg mb-2" />
+                        )
+                      )}
                       <p className="font-bold text-white text-sm">{work.title}</p>
                       <p className="text-[10px] text-gray-400 mt-1">
                         {work.is_tokenized ? (work.token_type === 'unique' ? 'NFT Único' : 'Tokens fraccionados') : 'Solo exhibición'}
@@ -602,9 +630,7 @@ function App() {
             </div>
           </main>
         ) : (
-          /* ===================== HOME ===================== */
           <main className="grid grid-cols-1 md:grid-cols-4 gap-4 my-auto py-3 items-start">
-            {/* Izquierda */}
             <div className="flex flex-col gap-2 items-start">
               <div className="bg-black/40 backdrop-blur-md p-3 rounded-xl border border-[#f3e5ab]/30 w-full max-w-[220px]">
                 {currentUser ? (
@@ -646,9 +672,7 @@ function App() {
               </button>
             </div>
 
-            {/* Centro - Stories + Feed */}
             <div className="md:col-span-2 flex flex-col gap-3">
-              {/* Barra de Procesos */}
               <div className="bg-black/40 backdrop-blur-md p-3 rounded-xl border border-[#f3e5ab]/20 overflow-x-auto">
                 <div className="flex gap-3 items-center">
                   {currentUser && (
@@ -675,23 +699,39 @@ function App() {
                 </div>
               </div>
 
-              {/* Publicar rápido */}
               {currentUser && (
                 <div className="bg-black/40 backdrop-blur-md p-3 rounded-xl border border-[#f3e5ab]/30">
                   <form onSubmit={handleCreatePost} className="space-y-2 text-xs">
-                    <textarea rows="2" value={newPostContent} onChange={(e) => setNewPostContent(e.target.value)}
-                      placeholder="¿Qué obra estás creando hoy?" className="w-full bg-black/30 border border-white/20 rounded p-2 text-white focus:outline-none focus:border-[#f3e5ab]" />
+                    <textarea
+                      rows="3"
+                      value={newPostContent}
+                      onChange={(e) => setNewPostContent(e.target.value)}
+                      placeholder="¿Qué querés compartir hoy?"
+                      className="w-full bg-black/30 border border-white/20 rounded-lg p-2.5 text-white text-sm focus:outline-none focus:border-[#f3e5ab] resize-y"
+                    />
                     <div className="flex gap-2">
-                      <input type="text" placeholder="Nombre de la obra" value={newWorkTitle} onChange={(e) => setNewWorkTitle(e.target.value)}
-                        className="flex-1 bg-black/30 border border-white/20 p-1.5 rounded text-white" />
-                      <button type="submit" className="bg-[#f3e5ab] text-black font-bold px-3 py-1.5 rounded text-xs hover:bg-white transition">Publicar</button>
+                      <input
+                        type="text"
+                        placeholder="Título (opcional)"
+                        value={newWorkTitle}
+                        onChange={(e) => setNewWorkTitle(e.target.value)}
+                        className="flex-1 bg-black/30 border border-white/20 p-2 rounded-lg text-white"
+                      />
+                      <button type="submit" className="bg-[#f3e5ab] text-black font-bold px-3 py-2 rounded-lg text-xs hover:bg-white transition">
+                        Publicar
+                      </button>
                     </div>
-                    <p className="text-[10px] text-gray-400">Para foto + NFT/fraccionado andá a <button type="button" onClick={() => setActiveTab('profile')} className="underline text-[#f3e5ab]">tu muro</button>.</p>
+                    <p className="text-[10px] text-gray-400">
+                      Para imagen/video + NFT andá a{' '}
+                      <button type="button" onClick={() => setActiveTab('profile')} className="underline text-[#f3e5ab]">
+                        tu muro
+                      </button>
+                      .
+                    </p>
                   </form>
                 </div>
               )}
 
-              {/* Feed */}
               <div className="space-y-3 max-h-[55vh] overflow-y-auto pr-1">
                 {posts.length > 0 ? posts.map((post) => (
                   <div key={post.id} className="bg-black/40 backdrop-blur-md p-3.5 rounded-xl border border-white/10">
@@ -710,7 +750,13 @@ function App() {
                     <p className="text-gray-100 my-2 text-sm">{post.content}</p>
                     {post.works && (
                       <div className="p-2.5 bg-black/40 rounded-lg border border-[#f3e5ab]/30 my-2">
-                        {post.works.image_url && <img src={post.works.image_url} alt={post.works.title} className="w-full max-h-48 object-cover rounded-lg mb-2" />}
+                        {post.works.image_url && (
+                          post.works.image_url.match(/\.(mp4|webm|mov|ogg)(\?|$)/i) ? (
+                            <video src={post.works.image_url} controls className="w-full max-h-64 rounded-lg mb-2" />
+                          ) : (
+                            <img src={post.works.image_url} alt={post.works.title} className="w-full max-h-64 object-contain rounded-lg mb-2" />
+                          )
+                        )}
                         <div className="flex justify-between items-center">
                           <div>
                             <p className="font-bold text-white text-sm">{post.works.title}</p>
@@ -738,7 +784,6 @@ function App() {
               </div>
             </div>
 
-            {/* Derecha */}
             <div className="flex flex-col gap-2 items-end">
               <div className="bg-black/40 backdrop-blur-md p-3 rounded-xl border border-white/20 text-xs w-full max-w-[220px]">
                 <h3 className="font-bold text-[#f3e5ab] mb-2 uppercase text-[11px]">🏆 Artistas Verificados</h3>
@@ -760,7 +805,6 @@ function App() {
           </main>
         )}
 
-        {/* Modales login / register / wallet / tokens */}
         {activeTab !== 'home' && activeTab !== 'profile' && (
           <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
             <div className="bg-[#0f0f0f] border border-[#f3e5ab]/40 rounded-2xl p-5 w-full max-w-md relative shadow-2xl">

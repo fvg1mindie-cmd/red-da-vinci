@@ -177,7 +177,6 @@ function App() {
     return Object.values(map);
   }, [stories]);
 
-  // Selección de múltiples archivos (Fotos y Videos)
   const handleMediaChange = (e) => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
@@ -311,7 +310,7 @@ function App() {
       let uploadedUrls = [];
       for (let file of selectedMediaFiles) {
         const fileExt = file.name.split('.').pop();
-        const fileName = `${currentUser.id}/${Date.now()}_${Math.random().toString(36.substring(2))}.${fileExt}`;
+        const fileName = `${currentUser.id}/${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`;
         const { error: uploadError } = await supabase.storage.from('artworks').upload(fileName, file);
         if (uploadError) throw uploadError;
         const { data: publicUrlData } = supabase.storage.from('artworks').getPublicUrl(fileName);
@@ -329,7 +328,7 @@ function App() {
           token_type: finalTokenType,
           price: finalIsTokenized ? Number(newWorkPrice) : 0,
           is_tokenized: finalIsTokenized,
-          image_url: uploadedUrls[0] || null // Principal para obras
+          image_url: uploadedUrls[0] || null
         };
 
         const { data: workData, error: workError } = await supabase.from('works').insert(payload).select().single();
@@ -461,11 +460,10 @@ function App() {
           </div>
         )}
 
-        {/* PESTAÑA: MI PERFIL Y BIOGRAFÍA (Estética renovada sin globos apretados y con fotos grandes) */}
+        {/* PESTAÑA: MI PERFIL Y BIOGRAFÍA */}
         {activeTab === 'profile' && currentUser ? (
           <main className="w-full max-w-4xl mx-auto bg-black/80 backdrop-blur-xl p-6 md:p-10 rounded-3xl border border-[#f3e5ab]/40 shadow-2xl space-y-8">
             
-            {/* Cabecera de Perfil */}
             <div className="flex flex-col md:flex-row items-center gap-6 border-b border-white/20 pb-8">
               <div className="w-24 h-24 md:w-32 md:h-32 rounded-full bg-gradient-to-tr from-[#f3e5ab] to-amber-200 text-black font-bold text-4xl md:text-5xl flex items-center justify-center shadow-2xl ring-4 ring-[#f3e5ab]/30">
                 {currentUser.name?.charAt(0).toUpperCase() || 'A'}
@@ -491,7 +489,6 @@ function App() {
               </div>
             </div>
 
-            {/* Sección Biografía (Diseño limpio, sin globos pequeños) */}
             <div className="space-y-3">
               <h3 className="text-sm uppercase tracking-widest text-[#f3e5ab] font-bold">Biografía Artística</h3>
               <div className="bg-black/60 p-6 rounded-2xl border border-white/15 text-gray-200 text-base md:text-lg leading-relaxed shadow-inner">
@@ -499,7 +496,6 @@ function App() {
               </div>
             </div>
 
-            {/* Formulario de Publicación Avanzado (Múltiples fotos/videos, formato grande) */}
             <div className="bg-black/60 border border-[#f3e5ab]/40 rounded-2xl p-6 md:p-8 space-y-6 shadow-xl">
               <div className="border-b border-[#f3e5ab]/20 pb-4">
                 <h3 className="text-lg font-bold text-[#f3e5ab]">🖼️ Nueva Publicación o Galería de Obras</h3>
@@ -541,7 +537,6 @@ function App() {
                   </div>
                 </div>
 
-                {/* Previews en Tamaño Grande */}
                 {mediaPreviews.length > 0 && (
                   <div className="space-y-4">
                     <div className="flex justify-between items-center">
@@ -570,7 +565,6 @@ function App() {
                   </div>
                 )}
 
-                {/* Configuración de Tokenización */}
                 <div className="bg-black/50 rounded-2xl p-5 border border-white/10 space-y-4">
                   <p className="text-xs text-[#f3e5ab] font-bold uppercase tracking-wider">Opciones de Monetización / Tokenización</p>
                   <div className="flex flex-wrap gap-6">
@@ -608,7 +602,6 @@ function App() {
               </form>
             </div>
 
-            {/* Mis Obras Publicadas (Visualización en Grande) */}
             <div className="space-y-4">
               <h3 className="text-sm uppercase tracking-widest text-[#f3e5ab] font-bold">🖼️ Mis Obras Publicadas ({myWorks.length})</h3>
               {myWorks.length > 0 ? (
@@ -650,136 +643,98 @@ function App() {
             </div>
           </main>
         ) : (
-          /* PESTAÑA PRINCIPAL / FEED (Visualización inmersiva en tamaño grande para todas las obras y publicaciones) */
           <main className="grid grid-cols-1 md:grid-cols-4 gap-6 my-auto py-4 items-start">
             
-            {/* Menú Lateral Izquierdo */}
             <div className="flex flex-col gap-4">
               <div className="bg-black/60 backdrop-blur-md p-5 rounded-2xl border border-[#f3e5ab]/30 shadow-xl w-full">
                 {currentUser ? (
                   <div className="flex flex-col gap-3">
                     <div className="flex items-center gap-3">
                       <div className="w-12 h-12 rounded-full bg-[#f3e5ab] text-black font-bold flex items-center justify-center text-lg shadow">
-                        {currentUser.name?.charAt(0).toUpperCase()}
+                        {currentUser.name?.charAt(0).toUpperCase() || 'A'}
                       </div>
-                      <div>
-                        <h4 className="font-bold text-sm text-[#f3e5ab]">{currentUser.name}</h4>
-                        <p className="text-xs text-gray-300">@{currentUser.username}</p>
+                      <div className="overflow-hidden">
+                        <h4 className="font-bold text-[#f3e5ab] text-sm truncate">{currentUser.name}</h4>
+                        <p className="text-xs text-gray-400 truncate">@{currentUser.username}</p>
                       </div>
                     </div>
-                    <button onClick={() => setActiveTab('profile')} className="w-full bg-[#f3e5ab]/20 border border-[#f3e5ab] text-[#f3e5ab] px-3 py-2.5 rounded-xl text-xs hover:bg-[#f3e5ab] hover:text-black transition font-bold">
-                      👤 Mi Perfil y Obras
+                    <button onClick={() => setActiveTab('profile')} className="w-full bg-[#f3e5ab] text-black font-bold py-2.5 rounded-xl text-xs hover:bg-white transition shadow">
+                      Mi Perfil y Obras
                     </button>
-                    <button onClick={handleLogout} className="w-full bg-red-950/40 border border-red-500/40 text-red-300 px-3 py-2 rounded-xl text-xs hover:bg-red-600 hover:text-white transition">
-                      Salir
+                    <button onClick={handleLogout} className="w-full bg-red-950/40 border border-red-500/30 text-red-300 font-bold py-2 rounded-xl text-xs hover:bg-red-600 hover:text-white transition">
+                      Cerrar Sesión
                     </button>
                   </div>
                 ) : (
-                  <div className="space-y-3">
-                    <h4 className="font-bold text-sm text-[#f3e5ab]">¡Bienvenido a la Red!</h4>
-                    <div className="flex flex-col gap-2">
-                      <button onClick={() => setActiveTab('login')} className="w-full bg-[#f3e5ab] text-black font-bold px-4 py-2 rounded-xl text-xs hover:bg-white transition shadow">Iniciar Sesión</button>
-                      <button onClick={() => setActiveTab('register')} className="w-full bg-black/40 border border-[#f3e5ab]/50 text-[#f3e5ab] px-4 py-2 rounded-xl text-xs hover:bg-[#f3e5ab] hover:text-black transition">Registrarse</button>
-                    </div>
+                  <div className="space-y-4">
+                    <h3 className="text-[#f3e5ab] font-bold text-sm text-center">Acceso a la Red</h3>
+                    <form onSubmit={async (e) => {
+                      e.preventDefault();
+                      const { error } = await supabase.auth.signInWithPassword({ email: loginForm.email, password: loginForm.password });
+                      if (error) alert('Error al iniciar sesión: ' + error.message);
+                    }} className="space-y-3">
+                      <input type="email" placeholder="Correo electrónico" value={loginForm.email} onChange={(e) => setLoginForm({...loginForm, email: e.target.value})} className="w-full bg-black/70 border border-white/20 rounded-xl p-3 text-xs text-white" required />
+                      <input type="password" placeholder="Contraseña" value={loginForm.password} onChange={(e) => setLoginForm({...loginForm, password: e.target.value})} className="w-full bg-black/70 border border-white/20 rounded-xl p-3 text-xs text-white" required />
+                      <button type="submit" className="w-full bg-[#f3e5ab] text-black font-bold py-3 rounded-xl text-xs hover:bg-white transition">Entrar</button>
+                    </form>
                   </div>
                 )}
               </div>
-
-              {/* Botón Taller Stories */}
-              {currentUser && (
-                <button onClick={() => setShowAddStory(true)} className="w-full bg-gradient-to-r from-amber-900/60 to-black/80 border border-[#f3e5ab]/60 p-4 rounded-2xl hover:border-[#f3e5ab] text-left transition shadow-xl group">
-                  <h3 className="font-bold text-[#f3e5ab] text-sm group-hover:underline">📸 Compartir en el Taller</h3>
-                  <p className="text-xs text-gray-300 mt-1">Subí historias de tu proceso creativo por 24h.</p>
-                </button>
-              )}
             </div>
 
-            {/* Columna Central: Feed con fotos/videos grandes e inmersivos (sin globos pequeños) */}
-            <div className="md:col-span-3 flex flex-col gap-6">
+            <div className="md:col-span-3 space-y-6">
               
-              {/* Barra de Historias / En el Taller */}
-              {storiesByUser.length > 0 && (
-                <div className="bg-black/60 backdrop-blur-md p-4 rounded-2xl border border-[#f3e5ab]/30 shadow-xl flex gap-4 overflow-x-auto">
-                  {storiesByUser.map(group => (
-                    <button key={group.user_id} onClick={() => openUserStories(group)} className="flex flex-col items-center gap-2 flex-shrink-0 group">
-                      <div className="w-16 h-16 rounded-full p-0.5 bg-gradient-to-tr from-[#f3e5ab] to-amber-600 group-hover:scale-105 transition shadow-lg">
-                        <div className="w-full h-full bg-black rounded-full flex items-center justify-center text-[#f3e5ab] font-bold text-lg">
-                          {group.name.charAt(0).toUpperCase()}
-                        </div>
+              {/* En el Taller / Historias */}
+              <div className="bg-black/60 backdrop-blur-md p-4 rounded-2xl border border-[#f3e5ab]/30 shadow-xl overflow-x-auto flex items-center gap-4">
+                {currentUser && (
+                  <div className="flex flex-col items-center gap-1 shrink-0 cursor-pointer" onClick={() => setShowAddStory(true)}>
+                    <div className="w-16 h-16 rounded-full border-2 border-dashed border-[#f3e5ab] flex items-center justify-center text-[#f3e5ab] hover:bg-[#f3e5ab]/20 transition">
+                      <Plus size={24} />
+                    </div>
+                    <span className="text-xs text-[#f3e5ab] font-bold">Tu Taller</span>
+                  </div>
+                )}
+                {storiesByUser.map((group) => (
+                  <div key={group.user_id} onClick={() => openUserStories(group)} className="flex flex-col items-center gap-1 shrink-0 cursor-pointer group">
+                    <div className="w-16 h-16 rounded-full p-0.5 bg-gradient-to-tr from-[#f3e5ab] to-amber-300 group-hover:scale-105 transition">
+                      <div className="w-full h-full rounded-full bg-black flex items-center justify-center text-[#f3e5ab] font-bold text-lg">
+                        {group.name.charAt(0).toUpperCase()}
                       </div>
-                      <span className="text-xs text-gray-200 max-w-[70px] truncate">{group.name}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
+                    </div>
+                    <span className="text-xs text-gray-300 truncate w-20 text-center">{group.name}</span>
+                  </div>
+                ))}
+              </div>
 
-              {/* Listado de Publicaciones */}
+              {/* Feed General de Publicaciones */}
               <div className="space-y-6">
                 {posts.length > 0 ? (
-                  posts.map(post => (
-                    <div key={post.id} className="bg-black/75 backdrop-blur-xl border border-[#f3e5ab]/30 rounded-3xl p-6 md:p-8 shadow-2xl space-y-5">
-                      
-                      {/* Autor */}
-                      <div className="flex items-center justify-between border-b border-white/10 pb-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-12 h-12 rounded-full bg-[#f3e5ab] text-black font-bold flex items-center justify-center text-base shadow">
-                            {post.profiles?.name?.charAt(0).toUpperCase() || 'A'}
-                          </div>
-                          <div>
-                            <h4 className="font-bold text-base text-[#f3e5ab]">{post.profiles?.name || 'Artista'}</h4>
-                            <p className="text-xs text-gray-400">@{post.profiles?.username || 'artista'}</p>
-                          </div>
+                  posts.map((post) => (
+                    <div key={post.id} className="bg-black/80 backdrop-blur-md p-6 rounded-3xl border border-[#f3e5ab]/30 shadow-2xl space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h4 className="font-bold text-[#f3e5ab] text-base">{post.profiles?.name || 'Artista'}</h4>
+                          <p className="text-xs text-gray-400">@{post.profiles?.username || 'artista'}</p>
                         </div>
-                        {post.profiles?.curated && (
-                          <span className="text-[10px] bg-green-950/60 text-green-300 border border-green-500/40 px-3 py-1 rounded-full font-bold">
-                            ✓ Verificado
-                          </span>
-                        )}
+                        <span className="text-xs text-gray-500">{new Date(post.created_at).toLocaleDateString()}</span>
                       </div>
 
-                      {/* Texto de la publicación (Ample, sin globos apretados) */}
-                      {post.content && (
-                        <p className="text-gray-100 text-base md:text-lg leading-relaxed whitespace-pre-wrap">
-                          {post.content}
-                        </p>
-                      )}
+                      <p className="text-gray-200 text-base leading-relaxed">{post.content}</p>
 
-                      {/* Multimedia de la obra en GRANDE (Protagonismo total) */}
                       {post.works?.image_url && (
-                        <div className="rounded-2xl overflow-hidden border border-[#f3e5ab]/30 bg-black/90 shadow-2xl">
+                        <div className="rounded-2xl overflow-hidden bg-black/50 border border-white/10">
                           {post.works.image_url.match(/\.(mp4|webm|mov|ogg)(\?|$)/i) ? (
-                            <video src={post.works.image_url} controls className="w-full max-h-[500px] object-cover" />
+                            <video src={post.works.image_url} className="w-full max-h-[500px] object-cover" controls />
                           ) : (
-                            <img src={post.works.image_url} alt={post.works.title || 'Obra de arte'} className="w-full max-h-[550px] object-contain mx-auto" />
+                            <img src={post.works.image_url} alt="Obra" className="w-full max-h-[550px] object-contain mx-auto" />
                           )}
                         </div>
                       )}
-
-                      {/* Detalles de la Obra y Botón de Adquisición */}
-                      {post.works && (
-                        <div className="bg-black/50 border border-white/15 rounded-2xl p-5 flex flex-col md:flex-row justify-between items-center gap-4 shadow-inner">
-                          <div>
-                            <h5 className="font-bold text-[#f3e5ab] text-lg">{post.works.title}</h5>
-                            <p className="text-xs text-gray-300 mt-1">
-                              {post.works.is_tokenized ? (post.works.token_type === 'unique' ? '💎 NFT Único' : '🪙 Tokens Fraccionados') : '🎨 Obra de Exhibición'}
-                            </p>
-                          </div>
-                          {post.works.is_tokenized && (
-                            <div className="flex items-center gap-4 w-full md:w-auto justify-between">
-                              <span className="text-lg font-bold text-green-300">${post.works.price} USDT</span>
-                              <button onClick={() => alert('Función de compra disponible en el siguiente módulo.')} className="bg-[#f3e5ab] text-black font-bold px-5 py-2.5 rounded-xl hover:bg-white transition text-xs shadow-lg">
-                                Adquirir Token
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      )}
-
                     </div>
                   ))
                 ) : (
-                  <div className="text-center py-16 bg-black/50 rounded-3xl border border-white/10">
-                    <p className="text-base text-gray-400">No hay publicaciones en el feed todavía.</p>
+                  <div className="text-center py-16 bg-black/60 rounded-3xl border border-white/10">
+                    <p className="text-gray-400 text-sm">No hay publicaciones recientes en el feed.</p>
                   </div>
                 )}
               </div>

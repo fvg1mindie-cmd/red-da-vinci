@@ -37,6 +37,12 @@ function App() {
   const [mediaPreviews, setMediaPreviews] = useState([]);
   const [uploadingMedia, setUploadingMedia] = useState(false);
 
+  const [myPosts, setMyPosts] = useState([]);
+  const [editingPostId, setEditingPostId] = useState(null);
+  const [editContent, setEditContent] = useState('');
+  const [editTitle, setEditTitle] = useState('');
+  const [savingPostEdit, setSavingPostEdit] = useState(false);
+
   const [commentInputs, setCommentInputs] = useState({});
   const [openComments, setOpenComments] = useState({});
 
@@ -129,6 +135,7 @@ function App() {
     if (currentUser) {
       loadMyTokens(currentUser.id);
       loadMyWorks(currentUser.id);
+      loadMyPosts(currentUser.id);
     }
   }, [currentUser]);
 
@@ -138,6 +145,17 @@ function App() {
       .select('*, profiles(name, username, curated), works(*), likes(user_id), comments(id, content, created_at, author_id, profiles(name, username))')
       .order('created_at', { ascending: false });
     if (!error) setPosts(data || []);
+    else console.error(error);
+    if (currentUser) loadMyPosts(currentUser.id);
+  };
+
+  const loadMyPosts = async (userId) => {
+    const { data, error } = await supabase
+      .from('posts')
+      .select('*, works(*), likes(user_id), comments(id, content, created_at, author_id, profiles(name, username))')
+      .eq('author_id', userId)
+      .order('created_at', { ascending: false });
+    if (!error) setMyPosts(data || []);
     else console.error(error);
   };
 
@@ -225,6 +243,81 @@ function App() {
     const { error } = await supabase.from('comments').insert({ post_id: postId, author_id: currentUser.id, content });
     if (error) { console.error(error); alert('Error al comentar: ' + error.message); return; }
     setCommentInputs(prev => ({ ...prev, [postId]: '' }));
+    loadPosts();
+  };
+
+  // ---------------- Gestión de mis publicaciones (perfil) ----------------
+
+  const getPostImages = (post) =>
+    (post.media_urls && post.media_urls.length > 0)
+      ? post.media_urls
+      : (post.works?.image_url ? [post.works.image_url] : []);
+
+  const startEditPost = (post) => {
+    setEditingPostId(post.id);
+    setEditContent(post.content || '');
+    setEditTitle(post.works?.title || '');
+  };
+
+  const cancelEditPost = () => {
+    setEditingPostId(null);
+    setEditContent('');
+    setEditTitle('');
+  };
+
+  const handleSavePostEdit = async (post) => {
+    setSavingPostEdit(true);
+    try {
+      const { error: postError } = await supabase.from('posts').update({ content: editContent.trim() }).eq('id', post.id);
+      if (postError) throw postError;
+      if (post.work_id && editTitle.trim()) {
+        const { error: workError } = await supabase.from('works').update({ title: editTitle.trim() }).eq('id', post.work_id);
+        if (workError) throw workError;
+      }
+      cancelEditPost();
+      await loadPosts();
+      if (currentUser) { loadMyPosts(currentUser.id); loadMyWorks(currentUser.id); }
+    } catch (err) {
+      console.error(err);
+      alert('Error al guardar: ' + err.message);
+    } finally {
+      setSavingPostEdit(false);
+    }
+  };
+
+  const handleDeletePost = async (post) => {
+    if (!window.confirm('¿Borrar esta publicación? Se eliminarán también sus me gusta y comentarios. No se puede deshacer.')) return;
+    try {
+      const { error: postError } = await supabase.from('posts').delete().eq('id', post.id);
+      if (postError) throw postError;
+
+      if (post.work_id) {
+        const { error: workError } = await supabase.from('works').delete().eq('id', post.work_id);
+        if (workError) console.error('No se pudo borrar la obra asociada:', workError);
+      }
+
+      // Limpieza de archivos en Storage (si falla, no es grave)
+      const paths = getPostImages(post)
+        .map(u => u.split('/artworks/')[1])
+        .filter(Boolean)
+        .map(decodeURIComponent);
+      if (paths.length > 0) {
+        const { error: rmError } = await supabase.storage.from('artworks').remove(paths);
+        if (rmError) console.error('No se pudieron borrar los archivos:', rmError);
+      }
+
+      await loadPosts();
+      if (currentUser) { loadMyPosts(currentUser.id); loadMyWorks(currentUser.id); }
+    } catch (err) {
+      console.error(err);
+      alert('Error al borrar: ' + err.message);
+    }
+  };
+
+  const handleDeleteComment = async (commentId) => {
+    if (!window.confirm('¿Borrar este comentario?')) return;
+    const { error } = await supabase.from('comments').delete().eq('id', commentId);
+    if (error) { console.error(error); alert('Error al borrar comentario: ' + error.message); return; }
     loadPosts();
   };
 
@@ -782,7 +875,7 @@ function App() {
         )}
 
         {activeTab === 'profile' && currentUser ? (
-          <main className="w-full max-w-4xl mx-auto bg-black/80 backdrop-blur-xl p-6 md:p-10 rounded-3xl border border-[#f3e5ab]/40 shadow-2xl space-y-8">
+          <main className="w-full max-w-6xl mx-auto bg-black/80 backdrop-blur-xl p-6 md:p-10 rounded-3xl border border-[#f3e5ab]/40 shadow-2xl space-y-8">
             
             <div className="flex flex-col md:flex-row items-center gap-6 border-b border-white/20 pb-8">
               <div className="w-24 h-24 md:w-32 md:h-32 rounded-full bg-gradient-to-tr from-[#f3e5ab] to-amber-200 text-black font-bold text-4xl md:text-5xl flex items-center justify-center shadow-2xl ring-4 ring-[#f3e5ab]/30">
@@ -935,40 +1028,162 @@ function App() {
             </div>
 
             <div className="space-y-4">
-              <h3 className="text-sm uppercase tracking-widest text-[#f3e5ab] font-bold">🖼️ Mis Obras Publicadas ({myWorks.length})</h3>
-              {myWorks.length > 0 ? (
+              <h3 className="text-sm uppercase tracking-widest text-[#f3e5ab] font-bold">🖼️ Mis Publicaciones ({myPosts.length})</h3>
+              {myPosts.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {myWorks.map((work) => (
-                    <div key={work.id} className="bg-black/70 p-5 rounded-2xl border border-[#f3e5ab]/30 shadow-xl space-y-3">
-                      {work.image_url && (
-                        isVideo(work.image_url) ? (
-                          <video src={work.image_url} className="w-full max-h-[70vh] object-contain bg-black rounded-xl shadow-md" controls />
+                  {myPosts.map((post) => {
+                    const images = getPostImages(post);
+                    const key = 'my_' + post.id;
+                    const idx = carouselIndexByPost[key] || 0;
+                    const current = images[idx] || images[0];
+                    const isEditing = editingPostId === post.id;
+                    const work = post.works;
+                    return (
+                      <div key={post.id} className="bg-black/70 p-5 rounded-2xl border border-[#f3e5ab]/30 shadow-xl space-y-3 min-w-0">
+                        {current && (
+                          <div className="relative rounded-xl overflow-hidden bg-black group">
+                            {isVideo(current) ? (
+                              <video src={current} className="w-full max-h-[50vh] object-contain bg-black" controls />
+                            ) : (
+                              <img
+                                src={current}
+                                alt={work?.title || 'Obra'}
+                                onClick={() => openLightbox(images, idx)}
+                                className="w-full max-h-[50vh] object-contain bg-black cursor-zoom-in"
+                              />
+                            )}
+                            {images.length > 1 && (
+                              <>
+                                <button
+                                  onClick={() => setCarouselIndexByPost(prev => ({ ...prev, [key]: (idx - 1 + images.length) % images.length }))}
+                                  className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/60 border border-white/20 p-1.5 rounded-full text-white hover:bg-[#f3e5ab] hover:text-black transition"
+                                >
+                                  <ChevronLeft size={18} />
+                                </button>
+                                <button
+                                  onClick={() => setCarouselIndexByPost(prev => ({ ...prev, [key]: (idx + 1) % images.length }))}
+                                  className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/60 border border-white/20 p-1.5 rounded-full text-white hover:bg-[#f3e5ab] hover:text-black transition"
+                                >
+                                  <ChevronRight size={18} />
+                                </button>
+                                <span className="absolute top-2 right-2 bg-black/70 text-white text-xs px-2 py-1 rounded-full font-bold">
+                                  {idx + 1}/{images.length}
+                                </span>
+                              </>
+                            )}
+                          </div>
+                        )}
+
+                        {isEditing ? (
+                          <div className="space-y-2">
+                            {post.work_id && (
+                              <input
+                                type="text"
+                                value={editTitle}
+                                onChange={(e) => setEditTitle(e.target.value)}
+                                placeholder="Título de la obra"
+                                className="w-full bg-black/70 border border-white/20 rounded-lg p-2.5 text-white text-sm focus:outline-none focus:border-[#f3e5ab]"
+                              />
+                            )}
+                            <textarea
+                              rows="4"
+                              value={editContent}
+                              onChange={(e) => setEditContent(e.target.value)}
+                              placeholder="Descripción"
+                              className="w-full bg-black/70 border border-white/20 rounded-lg p-2.5 text-white text-sm focus:outline-none focus:border-[#f3e5ab] resize-y"
+                            />
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => handleSavePostEdit(post)}
+                                disabled={savingPostEdit}
+                                className="flex-1 bg-[#f3e5ab] text-black font-bold py-2 rounded-lg text-xs hover:bg-white transition disabled:opacity-60"
+                              >
+                                {savingPostEdit ? 'Guardando...' : 'Guardar cambios'}
+                              </button>
+                              <button
+                                onClick={cancelEditPost}
+                                className="flex-1 bg-black/60 border border-white/20 text-gray-300 font-bold py-2 rounded-lg text-xs hover:bg-white hover:text-black transition"
+                              >
+                                Cancelar
+                              </button>
+                            </div>
+                          </div>
                         ) : (
-                          <img
-                            src={work.image_url}
-                            alt={work.title}
-                            onClick={() => openLightbox([work.image_url], 0)}
-                            className="w-full max-h-[70vh] object-contain rounded-xl bg-black/50 shadow-md cursor-zoom-in"
-                          />
-                        )
-                      )}
-                      <div>
-                        <h4 className="font-bold text-white text-lg">{work.title}</h4>
-                        <p className="text-xs text-gray-400 mt-1">
-                          {work.is_tokenized ? (work.token_type === 'unique' ? 'NFT Único' : 'Tokens fraccionados') : 'Solo exhibición'}
-                        </p>
+                          <div>
+                            <h4 className="font-bold text-white text-lg">{work?.title || 'Publicación'}</h4>
+                            {post.content && <p className="text-sm text-gray-300 mt-1 leading-relaxed">{post.content}</p>}
+                            <p className="text-xs text-gray-500 mt-2">
+                              {new Date(post.created_at).toLocaleDateString()} ·{' '}
+                              {work?.is_tokenized ? (work.token_type === 'unique' ? `NFT Único · $${work.price} USDT` : `Tokens fraccionados · $${work.price} USDT`) : 'Solo exhibición'}
+                            </p>
+                          </div>
+                        )}
+
+                        <div className="flex items-center justify-between pt-2 border-t border-white/10">
+                          <div className="flex items-center gap-5">
+                            <span className="flex items-center gap-2 text-sm font-bold text-gray-300" title="Me gusta">
+                              <Heart size={18} className="text-red-400" fill={(post.likes || []).length > 0 ? 'currentColor' : 'none'} />
+                              {(post.likes || []).length}
+                            </span>
+                            <button
+                              onClick={() => toggleComments(key)}
+                              className="flex items-center gap-2 text-sm font-bold text-gray-300 hover:text-[#f3e5ab] transition"
+                              title="Ver comentarios"
+                            >
+                              <MessageCircle size={18} />
+                              {(post.comments || []).length}
+                            </button>
+                          </div>
+                          {!isEditing && (
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => startEditPost(post)}
+                                className="flex items-center gap-1 bg-[#f3e5ab]/15 border border-[#f3e5ab]/50 text-[#f3e5ab] px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-[#f3e5ab] hover:text-black transition"
+                              >
+                                <Pencil size={14} /> Editar
+                              </button>
+                              <button
+                                onClick={() => handleDeletePost(post)}
+                                className="flex items-center gap-1 bg-red-950/40 border border-red-500/40 text-red-300 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-red-600 hover:text-white transition"
+                              >
+                                <X size={14} /> Borrar
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
+                        {openComments[key] && (
+                          <div className="pt-3 space-y-3 border-t border-white/10">
+                            {(post.comments || [])
+                              .slice()
+                              .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+                              .map((c) => (
+                                <div key={c.id} className="text-sm flex items-start justify-between gap-2">
+                                  <div className="min-w-0">
+                                    <span className="font-bold text-[#f3e5ab]">{c.profiles?.name || 'Usuario'}</span>{' '}
+                                    <span className="text-gray-300 break-words">{c.content}</span>
+                                  </div>
+                                  <button
+                                    onClick={() => handleDeleteComment(c.id)}
+                                    className="text-gray-500 hover:text-red-400 transition shrink-0"
+                                    title="Borrar comentario"
+                                  >
+                                    <X size={14} />
+                                  </button>
+                                </div>
+                              ))}
+                            {(post.comments || []).length === 0 && (
+                              <p className="text-xs text-gray-500">Todavía no hay comentarios en esta publicación.</p>
+                            )}
+                          </div>
+                        )}
                       </div>
-                      <div className="pt-2">
-                        <span className={`text-xs px-3 py-1 rounded-full border font-bold inline-block ${work.is_tokenized ? 'bg-green-950/60 text-green-300 border-green-500/40' : 'bg-gray-800 text-gray-400 border-gray-600'}`}>
-                          {work.is_tokenized ? `$${work.price} USDT` : 'Exhibición'}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : (
                 <div className="text-center py-12 bg-black/50 rounded-2xl border border-white/10">
-                  <p className="text-sm text-gray-400">Todavía no publicaste ninguna obra en tu perfil.</p>
+                  <p className="text-sm text-gray-400">Todavía no publicaste nada en tu perfil.</p>
                 </div>
               )}
             </div>

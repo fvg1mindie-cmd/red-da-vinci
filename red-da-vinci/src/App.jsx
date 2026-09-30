@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Eye, EyeOff, X, Plus, ChevronLeft, ChevronRight, RotateCw, RotateCcw, Check, Pencil, Heart, MessageCircle, Camera, Flag } from 'lucide-react';
 import { supabase } from './supabaseClient';
+import { LevelBadge, ProgressBlock, AdminLevels, LevelsPage, ReglamentoPage } from './RedExtras';
 
 const RULES = [
   { t: 'Publicá solo obra propia.', d: 'Si no la creaste vos, no la subas. Copiar o reclamar como tuyo el trabajo de otro artista está prohibido.' },
@@ -42,6 +43,7 @@ function App() {
   const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [authMode, setAuthMode] = useState('login');
   const [registering, setRegistering] = useState(false);
+  const [inviteCode, setInviteCode] = useState(new URLSearchParams(window.location.search).get('ref') || '');
 
   const [artists, setArtists] = useState([]);
   const [posts, setPosts] = useState([]);
@@ -130,12 +132,26 @@ function App() {
     }
   }, []);
 
+  // Si alguien llega con un enlace de invitación (?ref=CODIGO), abrir directo el registro
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('ref')) setAuthMode('register');
+  }, []);
+
+  const applyPendingInvite = async () => {
+    const code = localStorage.getItem('reddavinci_pending_invite');
+    if (!code) return;
+    const { error } = await supabase.rpc('set_inviter', { code });
+    if (error) console.error(error);
+    localStorage.removeItem('reddavinci_pending_invite');
+  };
+
   const loadProfile = async (userId, authUser = null) => {
     const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
     if (!error && data) {
       setCurrentUser(data);
       setUserRole(data.role || 'artist');
       setAuthLoading(false);
+      applyPendingInvite();
       return;
     }
     if (authUser || session?.user) {
@@ -153,6 +169,7 @@ function App() {
       if (!createError && created) {
         setCurrentUser(created);
         setUserRole(created.role);
+        applyPendingInvite();
       } else {
         setCurrentUser(newProfile);
         setUserRole(newProfile.role);
@@ -182,7 +199,7 @@ function App() {
   const loadPosts = async () => {
     const { data, error } = await supabase
       .from('posts')
-      .select('*, profiles(name, username, curated, avatar_url), works(*), likes(user_id), comments(id, content, created_at, author_id, profiles(name, username))')
+      .select('*, profiles(name, username, curated, avatar_url, level), works(*), likes(user_id), comments(id, content, created_at, author_id, profiles(name, username))')
       .eq('status', 'approved')
       .order('created_at', { ascending: false });
     if (!error) setPosts(data || []);
@@ -884,6 +901,16 @@ function App() {
     if (!name.trim() || !cleanUsername) { alert('Completá tu nombre y un usuario válido (letras, números, punto o guion bajo).'); return; }
     if (password.length < 6) { alert('La contraseña necesita al menos 6 caracteres.'); return; }
     if (password !== confirmPassword) { alert('Las contraseñas no coinciden.'); return; }
+
+    // Validar el código de invitación (si escribió uno)
+    const code = inviteCode.trim().toUpperCase();
+    if (code) {
+      const { data: inviterId, error: inviteError } = await supabase.rpc('resolve_invite', { code });
+      if (inviteError) { console.error(inviteError); alert('No se pudo verificar el código de invitación. Probá de nuevo.'); return; }
+      if (!inviterId) { alert('Ese código de invitación no existe. Revisalo o dejalo vacío.'); return; }
+      localStorage.setItem('reddavinci_pending_invite', code);
+    }
+
     setRegistering(true);
     const { data, error } = await supabase.auth.signUp({
       email: email.trim(),
@@ -893,8 +920,9 @@ function App() {
       }
     });
     setRegistering(false);
-    if (error) { alert('Error al registrarte: ' + error.message); return; }
+    if (error) { localStorage.removeItem('reddavinci_pending_invite'); alert('Error al registrarte: ' + error.message); return; }
     setRegisterForm({ email: '', password: '', confirmPassword: '', name: '', username: '', bio: '', roleRequested: 'artist' });
+    setInviteCode('');
     if (!data.session) {
       alert('¡Cuenta creada! Revisá tu correo para confirmarla y después iniciá sesión.');
       setAuthMode('login');
@@ -921,7 +949,7 @@ function App() {
             RED DA VINCI
           </h1>
           <p className="text-sm text-[#e8d9a0]/90 mt-2 tracking-wide">Cooperativa de Arte Universal Tokenizada</p>
-          <div className="mt-4 flex justify-center items-center gap-4">
+          <div className="mt-4 flex flex-wrap justify-center items-center gap-3">
             <button onClick={() => setActiveTab('home')} className={`px-4 py-1.5 rounded-full text-xs font-bold transition border ${activeTab === 'home' ? 'bg-[#f3e5ab] text-black border-[#f3e5ab]' : 'bg-black/50 text-[#f3e5ab] border-[#f3e5ab]/40 hover:bg-[#f3e5ab]/20'}`}>
               🎨 Explorar Feed
             </button>
@@ -930,6 +958,12 @@ function App() {
                 🛡️ Moderación{adminPending.length + adminReports.length > 0 ? ` (${adminPending.length + adminReports.length})` : ''}
               </button>
             )}
+            <button onClick={() => setActiveTab('levels')} className={`px-4 py-1.5 rounded-full text-xs font-bold transition border ${activeTab === 'levels' ? 'bg-[#f3e5ab] text-black border-[#f3e5ab]' : 'bg-black/50 text-[#f3e5ab] border-[#f3e5ab]/40 hover:bg-[#f3e5ab]/20'}`}>
+              🏛️ Escalafón
+            </button>
+            <button onClick={() => setActiveTab('reglamento')} className={`px-4 py-1.5 rounded-full text-xs font-bold transition border ${activeTab === 'reglamento' ? 'bg-[#f3e5ab] text-black border-[#f3e5ab]' : 'bg-black/50 text-[#f3e5ab] border-[#f3e5ab]/40 hover:bg-[#f3e5ab]/20'}`}>
+              📜 Reglamento
+            </button>
             <button onClick={() => setShowRules(true)} className="px-4 py-1.5 rounded-full text-xs font-bold transition border bg-black/50 text-[#f3e5ab] border-[#f3e5ab]/40 hover:bg-[#f3e5ab]/20">
               📜 Reglas
             </button>
@@ -1222,9 +1256,15 @@ function App() {
           </div>
         )}
 
-        {activeTab === 'admin' && currentUser?.is_admin ? (
+        {activeTab === 'levels' ? (
+          <LevelsPage />
+        ) : activeTab === 'reglamento' ? (
+          <ReglamentoPage rules={RULES} />
+        ) : activeTab === 'admin' && currentUser?.is_admin ? (
           <main className="w-full max-w-5xl mx-auto bg-black/80 backdrop-blur-xl p-6 md:p-10 rounded-3xl border border-[#f3e5ab]/40 shadow-2xl space-y-10">
             <h2 className="text-2xl font-bold text-[#f3e5ab]">🛡️ Panel de moderación</h2>
+
+            <AdminLevels />
 
             <section className="space-y-4">
               <h3 className="text-sm uppercase tracking-widest text-[#f3e5ab] font-bold">Pendientes de aprobación ({adminPending.length})</h3>
@@ -1315,6 +1355,7 @@ function App() {
               <div className="flex-1 text-center md:text-left space-y-2">
                 <h2 className="text-2xl md:text-3xl font-bold text-[#f3e5ab] tracking-wide">{currentUser.name}</h2>
                 <p className="text-sm text-gray-300">@{currentUser.username}</p>
+                <LevelBadge level={currentUser.level} />
                 <div>
                   <span className={`text-xs px-3 py-1 rounded-full inline-block border ${
                     currentUser.curated ? 'bg-green-950/70 text-green-300 border-green-500/50' : 'bg-amber-950/50 text-amber-200 border-amber-500/40'
@@ -1339,6 +1380,8 @@ function App() {
                 {currentUser.bio || 'Aún no has agregado una biografía a tu perfil.'}
               </div>
             </div>
+
+            <ProgressBlock currentUser={currentUser} />
 
             <div className="bg-black/60 border border-[#f3e5ab]/40 rounded-2xl p-6 md:p-8 space-y-6 shadow-xl">
               <div className="border-b border-[#f3e5ab]/20 pb-4">
@@ -1675,6 +1718,7 @@ function App() {
                         <p className="text-xs text-gray-400 truncate">@{currentUser.username}</p>
                       </div>
                     </div>
+                    <LevelBadge level={currentUser.level} />
                     <button onClick={() => setActiveTab('profile')} className="w-full bg-[#f3e5ab] text-black font-bold py-2.5 rounded-xl text-xs hover:bg-white transition shadow">
                       Mi Perfil y Obras
                     </button>
@@ -1729,6 +1773,13 @@ function App() {
                       </form>
                     ) : (
                       <form onSubmit={handleRegister} className="space-y-3">
+                        <input
+                          type="text"
+                          placeholder="Código de invitación (opcional)"
+                          value={inviteCode}
+                          onChange={(e) => setInviteCode(e.target.value)}
+                          className="w-full bg-black/70 border border-white/20 rounded-xl p-3 text-xs text-white uppercase"
+                        />
                         <input
                           type="text"
                           placeholder="Nombre"
@@ -1847,6 +1898,7 @@ function App() {
                           <div>
                             <h4 className="font-bold text-[#f3e5ab] text-base">{post.profiles?.name || 'Artista'}</h4>
                             <p className="text-xs text-gray-400">@{post.profiles?.username || 'artista'}</p>
+                            <LevelBadge level={post.profiles?.level} />
                           </div>
                         </div>
                         <span className="text-xs text-gray-500">{new Date(post.created_at).toLocaleDateString()}</span>

@@ -40,6 +40,8 @@ function App() {
   const [showRegPassword, setShowRegPassword] = useState(false);
   const [showRegConfirm, setShowRegConfirm] = useState(false);
   const [showLoginPassword, setShowLoginPassword] = useState(false);
+  const [authMode, setAuthMode] = useState('login');
+  const [registering, setRegistering] = useState(false);
 
   const [artists, setArtists] = useState([]);
   const [posts, setPosts] = useState([]);
@@ -873,6 +875,32 @@ function App() {
     setActiveTab('home');
   };
 
+  // ---------------- Registro de nuevos usuarios ----------------
+
+  const handleRegister = async (e) => {
+    e.preventDefault();
+    const { email, password, confirmPassword, name, username, bio } = registerForm;
+    const cleanUsername = username.trim().toLowerCase().replace(/[^a-z0-9_.]/g, '');
+    if (!name.trim() || !cleanUsername) { alert('Completá tu nombre y un usuario válido (letras, números, punto o guion bajo).'); return; }
+    if (password.length < 6) { alert('La contraseña necesita al menos 6 caracteres.'); return; }
+    if (password !== confirmPassword) { alert('Las contraseñas no coinciden.'); return; }
+    setRegistering(true);
+    const { data, error } = await supabase.auth.signUp({
+      email: email.trim(),
+      password,
+      options: {
+        data: { name: name.trim(), username: cleanUsername, bio: bio.trim(), role: 'artist' }
+      }
+    });
+    setRegistering(false);
+    if (error) { alert('Error al registrarte: ' + error.message); return; }
+    setRegisterForm({ email: '', password: '', confirmPassword: '', name: '', username: '', bio: '', roleRequested: 'artist' });
+    if (!data.session) {
+      alert('¡Cuenta creada! Revisá tu correo para confirmarla y después iniciá sesión.');
+      setAuthMode('login');
+    }
+  };
+
   if (authLoading) {
     return (
       <div className="min-h-screen bg-[#0a0a0a] text-[#f3e5ab] flex items-center justify-center font-serif">
@@ -1657,41 +1685,126 @@ function App() {
                 ) : (
                   <div className="space-y-4">
                     <h3 className="text-[#f3e5ab] font-bold text-sm text-center">Acceso a la Red</h3>
-                    <form onSubmit={async (e) => {
-                      e.preventDefault();
-                      const { error } = await supabase.auth.signInWithPassword({ email: loginForm.email, password: loginForm.password });
-                      if (error) { alert('Error al iniciar sesión: ' + error.message); return; }
-                      if (rememberMe) {
-                        localStorage.setItem('reddavinci_remembered_email', loginForm.email);
-                      } else {
-                        localStorage.removeItem('reddavinci_remembered_email');
-                      }
-                    }} className="space-y-3">
-                      <input type="email" placeholder="Correo electrónico" value={loginForm.email} onChange={(e) => setLoginForm({...loginForm, email: e.target.value})} className="w-full bg-black/70 border border-white/20 rounded-xl p-3 text-xs text-white" required />
-                      <div className="relative">
+
+                    <div className="flex gap-2">
+                      <button type="button" onClick={() => setAuthMode('login')} className={`flex-1 py-2 rounded-lg text-xs font-bold border transition ${authMode === 'login' ? 'bg-[#f3e5ab] text-black border-[#f3e5ab]' : 'text-[#f3e5ab] border-[#f3e5ab]/40 hover:bg-[#f3e5ab]/20'}`}>Entrar</button>
+                      <button type="button" onClick={() => setAuthMode('register')} className={`flex-1 py-2 rounded-lg text-xs font-bold border transition ${authMode === 'register' ? 'bg-[#f3e5ab] text-black border-[#f3e5ab]' : 'text-[#f3e5ab] border-[#f3e5ab]/40 hover:bg-[#f3e5ab]/20'}`}>Registrarme</button>
+                    </div>
+
+                    {authMode === 'login' ? (
+                      <form onSubmit={async (e) => {
+                        e.preventDefault();
+                        const { error } = await supabase.auth.signInWithPassword({ email: loginForm.email, password: loginForm.password });
+                        if (error) { alert('Error al iniciar sesión: ' + error.message); return; }
+                        if (rememberMe) {
+                          localStorage.setItem('reddavinci_remembered_email', loginForm.email);
+                        } else {
+                          localStorage.removeItem('reddavinci_remembered_email');
+                        }
+                      }} className="space-y-3">
+                        <input type="email" placeholder="Correo electrónico" value={loginForm.email} onChange={(e) => setLoginForm({...loginForm, email: e.target.value})} className="w-full bg-black/70 border border-white/20 rounded-xl p-3 text-xs text-white" required />
+                        <div className="relative">
+                          <input
+                            type={showLoginPassword ? 'text' : 'password'}
+                            placeholder="Contraseña"
+                            value={loginForm.password}
+                            onChange={(e) => setLoginForm({...loginForm, password: e.target.value})}
+                            className="w-full bg-black/70 border border-white/20 rounded-xl p-3 pr-10 text-xs text-white"
+                            required
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowLoginPassword(v => !v)}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#f3e5ab]"
+                            tabIndex={-1}
+                          >
+                            {showLoginPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                          </button>
+                        </div>
+                        <label className="flex items-center gap-2 cursor-pointer select-none">
+                          <input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} className="accent-[#f3e5ab] w-3.5 h-3.5" />
+                          <span className="text-xs text-gray-300">Recordar mi cuenta</span>
+                        </label>
+                        <button type="submit" className="w-full bg-[#f3e5ab] text-black font-bold py-3 rounded-xl text-xs hover:bg-white transition">Entrar</button>
+                      </form>
+                    ) : (
+                      <form onSubmit={handleRegister} className="space-y-3">
                         <input
-                          type={showLoginPassword ? 'text' : 'password'}
-                          placeholder="Contraseña"
-                          value={loginForm.password}
-                          onChange={(e) => setLoginForm({...loginForm, password: e.target.value})}
-                          className="w-full bg-black/70 border border-white/20 rounded-xl p-3 pr-10 text-xs text-white"
+                          type="text"
+                          placeholder="Nombre"
+                          value={registerForm.name}
+                          onChange={(e) => setRegisterForm({...registerForm, name: e.target.value})}
+                          className="w-full bg-black/70 border border-white/20 rounded-xl p-3 text-xs text-white"
                           required
                         />
+                        <input
+                          type="text"
+                          placeholder="Usuario (sin espacios)"
+                          value={registerForm.username}
+                          onChange={(e) => setRegisterForm({...registerForm, username: e.target.value})}
+                          className="w-full bg-black/70 border border-white/20 rounded-xl p-3 text-xs text-white"
+                          required
+                        />
+                        <input
+                          type="email"
+                          placeholder="Correo electrónico"
+                          value={registerForm.email}
+                          onChange={(e) => setRegisterForm({...registerForm, email: e.target.value})}
+                          className="w-full bg-black/70 border border-white/20 rounded-xl p-3 text-xs text-white"
+                          required
+                        />
+                        <div className="relative">
+                          <input
+                            type={showRegPassword ? 'text' : 'password'}
+                            placeholder="Contraseña (mín. 6 caracteres)"
+                            value={registerForm.password}
+                            onChange={(e) => setRegisterForm({...registerForm, password: e.target.value})}
+                            className="w-full bg-black/70 border border-white/20 rounded-xl p-3 pr-10 text-xs text-white"
+                            required
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowRegPassword(v => !v)}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#f3e5ab]"
+                            tabIndex={-1}
+                          >
+                            {showRegPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                          </button>
+                        </div>
+                        <div className="relative">
+                          <input
+                            type={showRegConfirm ? 'text' : 'password'}
+                            placeholder="Repetir contraseña"
+                            value={registerForm.confirmPassword}
+                            onChange={(e) => setRegisterForm({...registerForm, confirmPassword: e.target.value})}
+                            className="w-full bg-black/70 border border-white/20 rounded-xl p-3 pr-10 text-xs text-white"
+                            required
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowRegConfirm(v => !v)}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#f3e5ab]"
+                            tabIndex={-1}
+                          >
+                            {showRegConfirm ? <EyeOff size={16} /> : <Eye size={16} />}
+                          </button>
+                        </div>
+                        <textarea
+                          rows="2"
+                          placeholder="Biografía artística (opcional)"
+                          value={registerForm.bio}
+                          onChange={(e) => setRegisterForm({...registerForm, bio: e.target.value})}
+                          className="w-full bg-black/70 border border-white/20 rounded-xl p-3 text-xs text-white resize-y"
+                        />
                         <button
-                          type="button"
-                          onClick={() => setShowLoginPassword(v => !v)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#f3e5ab]"
-                          tabIndex={-1}
+                          type="submit"
+                          disabled={registering}
+                          className="w-full bg-[#f3e5ab] text-black font-bold py-3 rounded-xl text-xs hover:bg-white transition disabled:opacity-60"
                         >
-                          {showLoginPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                          {registering ? 'Creando cuenta...' : 'Crear cuenta'}
                         </button>
-                      </div>
-                      <label className="flex items-center gap-2 cursor-pointer select-none">
-                        <input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} className="accent-[#f3e5ab] w-3.5 h-3.5" />
-                        <span className="text-xs text-gray-300">Recordar mi cuenta</span>
-                      </label>
-                      <button type="submit" className="w-full bg-[#f3e5ab] text-black font-bold py-3 rounded-xl text-xs hover:bg-white transition">Entrar</button>
-                    </form>
+                      </form>
+                    )}
                   </div>
                 )}
               </div>

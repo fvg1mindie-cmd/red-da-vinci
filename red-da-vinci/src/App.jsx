@@ -566,7 +566,7 @@ function App() {
       <div className="absolute inset-0 z-0 bg-center bg-cover bg-no-repeat opacity-95 pointer-events-none"
            style={{ backgroundImage: `url('/lo1.jpg')` }} />
 
-      <div className="relative z-10 max-w-5xl mx-auto w-full min-h-screen flex flex-col">
+      <div className="relative z-10 max-w-[1500px] mx-auto w-full min-h-screen flex flex-col">
 
         <header className="text-center mb-8 border-b border-[#f3e5ab]/20 pb-6">
           <h1 className="text-4xl md:text-5xl font-bold text-[#f3e5ab] tracking-[0.2em] drop-shadow-md">
@@ -980,7 +980,7 @@ function App() {
             </div>
           </main>
         ) : (
-          <main className="grid grid-cols-1 md:grid-cols-4 gap-6 my-auto py-4 items-start">
+          <main className="grid grid-cols-1 md:grid-cols-[260px_minmax(0,1fr)] gap-6 my-auto py-4 items-start">
             
             <div className="flex flex-col gap-4">
               <div className="bg-black/60 backdrop-blur-md p-5 rounded-2xl border border-[#f3e5ab]/30 shadow-xl w-full">
@@ -1045,7 +1045,7 @@ function App() {
               </div>
             </div>
 
-            <div className="md:col-span-3 space-y-6">
+            <div className="space-y-6 min-w-0">
               
               <div className="bg-black/60 backdrop-blur-md p-4 rounded-2xl border border-[#f3e5ab]/30 shadow-xl overflow-x-auto flex items-center gap-4">
                 {currentUser && (
@@ -1090,12 +1090,12 @@ function App() {
                         const idx = carouselIndexByPost[post.id] || 0;
                         const current = images[idx] || images[0];
                         return (
-                          <div className="relative rounded-2xl overflow-hidden bg-black border border-white/10 group">
+                          <div className="relative rounded-2xl overflow-hidden bg-black border border-white/10 group min-h-[60vh] flex items-center">
                             <div className="w-full cursor-zoom-in" onClick={() => openLightbox(images, idx)}>
                               {isVideo(current) ? (
-                                <video src={current} className="w-full max-h-[80vh] object-contain bg-black" controls onClick={(e) => e.stopPropagation()} />
+                                <video src={current} className="w-full max-h-[90vh] object-contain bg-black" controls onClick={(e) => e.stopPropagation()} />
                               ) : (
-                                <img src={current} alt="Obra" className="w-full max-h-[80vh] object-contain bg-black" />
+                                <img src={current} alt="Obra" className="w-full max-h-[90vh] object-contain bg-black" />
                               )}
                             </div>
                             {images.length > 1 && (

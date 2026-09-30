@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Eye, EyeOff, X, Plus, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Eye, EyeOff, X, Plus, ChevronLeft, ChevronRight, RotateCw, RotateCcw, Check, Pencil } from 'lucide-react';
 import { supabase } from './supabaseClient';
 
 function App() {
@@ -28,7 +28,6 @@ function App() {
   const [myWorks, setMyWorks] = useState([]);
   const [stories, setStories] = useState([]);
 
-  // Publish form (Soporta múltiples archivos y vista grande)
   const [newPostContent, setNewPostContent] = useState('');
   const [newWorkTitle, setNewWorkTitle] = useState('');
   const [wantsToTokenize, setWantsToTokenize] = useState(false);
@@ -38,7 +37,17 @@ function App() {
   const [mediaPreviews, setMediaPreviews] = useState([]);
   const [uploadingMedia, setUploadingMedia] = useState(false);
 
-  // Stories
+  const [editorIndex, setEditorIndex] = useState(null);
+  const [editorRotation, setEditorRotation] = useState(0);
+  const [editorRatio, setEditorRatio] = useState('original');
+  const [editorBrightness, setEditorBrightness] = useState(100);
+  const [editorContrast, setEditorContrast] = useState(100);
+  const [editorSaturation, setEditorSaturation] = useState(100);
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  const [lightbox, setLightbox] = useState(null);
+  const [carouselIndexByPost, setCarouselIndexByPost] = useState({});
+
   const [storyFile, setStoryFile] = useState(null);
   const [storyPreview, setStoryPreview] = useState(null);
   const [uploadingStory, setUploadingStory] = useState(false);
@@ -177,6 +186,10 @@ function App() {
     return Object.values(map);
   }, [stories]);
 
+  const isVideo = (url) => !!url && /\.(mp4|webm|mov|ogg)(\?|$)/i.test(url);
+
+  const openLightbox = (images, index = 0) => setLightbox({ images, index });
+
   const handleMediaChange = (e) => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
@@ -216,6 +229,72 @@ function App() {
     mediaPreviews.forEach(p => URL.revokeObjectURL(p.url));
     setSelectedMediaFiles([]);
     setMediaPreviews([]);
+  };
+
+  const openEditor = (idx) => {
+    setEditorIndex(idx);
+    setEditorRotation(0);
+    setEditorRatio('original');
+    setEditorBrightness(100);
+    setEditorContrast(100);
+    setEditorSaturation(100);
+  };
+
+  const closeEditor = () => setEditorIndex(null);
+
+  const applyEditAndSave = () => {
+    const item = mediaPreviews[editorIndex];
+    if (!item || item.type === 'video') { closeEditor(); return; }
+    setSavingEdit(true);
+    const img = new Image();
+    img.onload = () => {
+      const rotRad = (editorRotation * Math.PI) / 180;
+      const swap = editorRotation % 180 !== 0;
+      const naturalW = img.naturalWidth;
+      const naturalH = img.naturalHeight;
+
+      const rotCanvas = document.createElement('canvas');
+      rotCanvas.width = swap ? naturalH : naturalW;
+      rotCanvas.height = swap ? naturalW : naturalH;
+      const rctx = rotCanvas.getContext('2d');
+      rctx.translate(rotCanvas.width / 2, rotCanvas.height / 2);
+      rctx.rotate(rotRad);
+      rctx.drawImage(img, -naturalW / 2, -naturalH / 2);
+
+      let cw = rotCanvas.width, ch = rotCanvas.height, cx = 0, cy = 0;
+      if (editorRatio === 'square') {
+        const side = Math.min(cw, ch);
+        cx = (cw - side) / 2; cy = (ch - side) / 2; cw = side; ch = side;
+      } else if (editorRatio === 'portrait') {
+        const targetRatio = 4 / 5;
+        if (cw / ch > targetRatio) {
+          const newW = ch * targetRatio;
+          cx = (cw - newW) / 2; cw = newW;
+        } else {
+          const newH = cw / targetRatio;
+          cy = (ch - newH) / 2; ch = newH;
+        }
+      }
+
+      const finalCanvas = document.createElement('canvas');
+      finalCanvas.width = cw;
+      finalCanvas.height = ch;
+      const fctx = finalCanvas.getContext('2d');
+      fctx.filter = `brightness(${editorBrightness}%) contrast(${editorContrast}%) saturate(${editorSaturation}%)`;
+      fctx.drawImage(rotCanvas, cx, cy, cw, ch, 0, 0, cw, ch);
+
+      finalCanvas.toBlob((blob) => {
+        if (!blob) { setSavingEdit(false); return; }
+        const newFile = new File([blob], item.file.name.replace(/\.[^/.]+$/, '') + '.jpg', { type: 'image/jpeg' });
+        const newUrl = URL.createObjectURL(blob);
+        URL.revokeObjectURL(item.url);
+        setSelectedMediaFiles(prev => prev.map((f, i) => (i === editorIndex ? newFile : f)));
+        setMediaPreviews(prev => prev.map((p, i) => (i === editorIndex ? { ...p, file: newFile, url: newUrl } : p)));
+        setSavingEdit(false);
+        setEditorIndex(null);
+      }, 'image/jpeg', 0.92);
+    };
+    img.src = item.url;
   };
 
   const handleStoryFileChange = (e) => {
@@ -336,11 +415,12 @@ function App() {
         workId = workData.id;
       }
 
-      if (newPostContent.trim() || workId) {
+      if (newPostContent.trim() || workId || uploadedUrls.length > 0) {
         const { error: postError } = await supabase.from('posts').insert({
           author_id: currentUser.id,
           content: newPostContent.trim() || (newWorkTitle.trim() ? `Nueva obra: ${newWorkTitle.trim()}` : 'Nueva publicación'),
-          work_id: workId
+          work_id: workId,
+          media_urls: uploadedUrls.length > 0 ? uploadedUrls : null
         });
         if (postError) throw postError;
       }
@@ -383,7 +463,6 @@ function App() {
 
       <div className="relative z-10 max-w-5xl mx-auto w-full min-h-screen flex flex-col">
 
-        {/* Header Principal */}
         <header className="text-center mb-8 border-b border-[#f3e5ab]/20 pb-6">
           <h1 className="text-4xl md:text-5xl font-bold text-[#f3e5ab] tracking-[0.2em] drop-shadow-md">
             RED DA VINCI
@@ -401,7 +480,6 @@ function App() {
           </div>
         </header>
 
-        {/* Visualizador de Stories / En el Taller */}
         {viewingStories && (
           <div className="fixed inset-0 z-[100] bg-black/95 flex flex-col justify-center items-center p-4">
             <div className="absolute top-4 left-0 right-0 h-1 bg-white/20 flex gap-1 px-4 z-20">
@@ -431,7 +509,6 @@ function App() {
           </div>
         )}
 
-        {/* Modal Subir Historia / Taller */}
         {showAddStory && (
           <div className="fixed inset-0 z-[90] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-[#111] border border-[#f3e5ab]/50 rounded-2xl p-6 w-full max-w-md shadow-2xl">
@@ -460,7 +537,108 @@ function App() {
           </div>
         )}
 
-        {/* PESTAÑA: MI PERFIL Y BIOGRAFÍA */}
+        {editorIndex !== null && mediaPreviews[editorIndex] && (
+          <div className="fixed inset-0 z-[95] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-[#111] border border-[#f3e5ab]/50 rounded-2xl p-5 w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-[#f3e5ab] font-bold text-base">✏️ Editar foto</h3>
+                <button onClick={closeEditor}><X size={20} className="text-gray-400 hover:text-white" /></button>
+              </div>
+
+              <div className="rounded-xl overflow-hidden bg-black flex items-center justify-center border border-white/10" style={{ maxHeight: '45vh' }}>
+                <img
+                  src={mediaPreviews[editorIndex].url}
+                  alt="Editando"
+                  className="max-h-[45vh] w-auto"
+                  style={{
+                    transform: `rotate(${editorRotation}deg)`,
+                    filter: `brightness(${editorBrightness}%) contrast(${editorContrast}%) saturate(${editorSaturation}%)`
+                  }}
+                />
+              </div>
+
+              <div className="flex items-center justify-center flex-wrap gap-2 mt-4">
+                <button type="button" onClick={() => setEditorRotation(r => (r - 90 + 360) % 360)} className="bg-black/60 border border-white/20 p-2.5 rounded-full text-white hover:bg-[#f3e5ab] hover:text-black transition">
+                  <RotateCcw size={18} />
+                </button>
+                <button type="button" onClick={() => setEditorRotation(r => (r + 90) % 360)} className="bg-black/60 border border-white/20 p-2.5 rounded-full text-white hover:bg-[#f3e5ab] hover:text-black transition">
+                  <RotateCw size={18} />
+                </button>
+                {['original', 'square', 'portrait'].map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => setEditorRatio(r)}
+                    className={`px-3 py-2 rounded-full text-xs font-bold border transition ${editorRatio === r ? 'bg-[#f3e5ab] text-black border-[#f3e5ab]' : 'bg-black/60 text-gray-300 border-white/20 hover:border-[#f3e5ab]'}`}
+                  >
+                    {r === 'original' ? 'Original' : r === 'square' ? '1:1' : '4:5'}
+                  </button>
+                ))}
+              </div>
+
+              <div className="mt-5 space-y-3">
+                <div>
+                  <label className="text-xs text-gray-300 flex justify-between"><span>Brillo</span><span>{editorBrightness}%</span></label>
+                  <input type="range" min="50" max="150" value={editorBrightness} onChange={(e) => setEditorBrightness(Number(e.target.value))} className="w-full accent-[#f3e5ab]" />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-300 flex justify-between"><span>Contraste</span><span>{editorContrast}%</span></label>
+                  <input type="range" min="50" max="150" value={editorContrast} onChange={(e) => setEditorContrast(Number(e.target.value))} className="w-full accent-[#f3e5ab]" />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-300 flex justify-between"><span>Saturación</span><span>{editorSaturation}%</span></label>
+                  <input type="range" min="0" max="200" value={editorSaturation} onChange={(e) => setEditorSaturation(Number(e.target.value))} className="w-full accent-[#f3e5ab]" />
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={applyEditAndSave}
+                disabled={savingEdit}
+                className="mt-6 w-full bg-[#f3e5ab] text-black font-bold py-3 rounded-xl disabled:opacity-50 hover:bg-white transition text-sm flex items-center justify-center gap-2"
+              >
+                <Check size={16} /> {savingEdit ? 'Guardando...' : 'Aplicar cambios'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {lightbox && (
+          <div className="fixed inset-0 z-[110] bg-black/95 flex items-center justify-center p-2" onClick={() => setLightbox(null)}>
+            <button onClick={() => setLightbox(null)} className="absolute top-4 right-4 text-white bg-black/60 border border-white/20 rounded-full p-2 hover:bg-white hover:text-black transition z-20">
+              <X size={22} />
+            </button>
+            <div className="relative w-full h-full flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
+              {isVideo(lightbox.images[lightbox.index]) ? (
+                <video src={lightbox.images[lightbox.index]} className="max-w-full max-h-full object-contain" controls autoPlay />
+              ) : (
+                <img src={lightbox.images[lightbox.index]} alt="Vista completa" className="max-w-full max-h-full object-contain" />
+              )}
+              {lightbox.images.length > 1 && (
+                <>
+                  <button
+                    onClick={() => setLightbox(prev => ({ ...prev, index: (prev.index - 1 + prev.images.length) % prev.images.length }))}
+                    className="absolute left-2 md:left-6 top-1/2 -translate-y-1/2 bg-black/60 border border-white/20 p-3 rounded-full text-white hover:bg-[#f3e5ab] hover:text-black transition"
+                  >
+                    <ChevronLeft size={26} />
+                  </button>
+                  <button
+                    onClick={() => setLightbox(prev => ({ ...prev, index: (prev.index + 1) % prev.images.length }))}
+                    className="absolute right-2 md:right-6 top-1/2 -translate-y-1/2 bg-black/60 border border-white/20 p-3 rounded-full text-white hover:bg-[#f3e5ab] hover:text-black transition"
+                  >
+                    <ChevronRight size={26} />
+                  </button>
+                  <div className="absolute bottom-6 left-0 right-0 flex justify-center gap-1.5">
+                    {lightbox.images.map((_, i) => (
+                      <div key={i} className={`w-2 h-2 rounded-full ${lightbox.index === i ? 'bg-[#f3e5ab]' : 'bg-white/40'}`} />
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
         {activeTab === 'profile' && currentUser ? (
           <main className="w-full max-w-4xl mx-auto bg-black/80 backdrop-blur-xl p-6 md:p-10 rounded-3xl border border-[#f3e5ab]/40 shadow-2xl space-y-8">
             
@@ -547,18 +725,30 @@ function App() {
                       {mediaPreviews.map((item, idx) => (
                         <div key={idx} className="relative bg-black/80 p-3 rounded-2xl border border-[#f3e5ab]/30 shadow-lg group">
                           {item.type === 'video' ? (
-                            <video src={item.url} controls className="w-full h-64 object-cover rounded-xl" />
+                            <video src={item.url} controls className="w-full h-72 object-cover rounded-xl" />
                           ) : (
-                            <img src={item.url} alt={`Preview ${idx}`} className="w-full h-64 object-contain rounded-xl bg-black/50" />
+                            <img src={item.url} alt={`Preview ${idx}`} className="w-full h-72 object-contain rounded-xl bg-black/50" />
                           )}
-                          <button
-                            type="button"
-                            onClick={() => removeMediaItem(idx)}
-                            className="absolute top-5 right-5 bg-red-600/90 text-white p-2 rounded-full hover:bg-red-700 transition shadow-lg"
-                            title="Quitar archivo"
-                          >
-                            <X size={18} />
-                          </button>
+                          <div className="absolute top-5 right-5 flex flex-col gap-2">
+                            <button
+                              type="button"
+                              onClick={() => removeMediaItem(idx)}
+                              className="bg-red-600/90 text-white p-2 rounded-full hover:bg-red-700 transition shadow-lg"
+                              title="Quitar archivo"
+                            >
+                              <X size={18} />
+                            </button>
+                            {item.type === 'image' && (
+                              <button
+                                type="button"
+                                onClick={() => openEditor(idx)}
+                                className="bg-[#f3e5ab] text-black p-2 rounded-full hover:bg-white transition shadow-lg"
+                                title="Editar imagen"
+                              >
+                                <Pencil size={18} />
+                              </button>
+                            )}
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -609,10 +799,15 @@ function App() {
                   {myWorks.map((work) => (
                     <div key={work.id} className="bg-black/70 p-5 rounded-2xl border border-[#f3e5ab]/30 shadow-xl space-y-3">
                       {work.image_url && (
-                        work.image_url.match(/\.(mp4|webm|mov|ogg)(\?|$)/i) ? (
-                          <video src={work.image_url} className="w-full h-72 object-cover rounded-xl shadow-md" controls />
+                        isVideo(work.image_url) ? (
+                          <video src={work.image_url} className="w-full max-h-[70vh] object-contain bg-black rounded-xl shadow-md" controls />
                         ) : (
-                          <img src={work.image_url} alt={work.title} className="w-full h-72 object-contain rounded-xl bg-black/50 shadow-md" />
+                          <img
+                            src={work.image_url}
+                            alt={work.title}
+                            onClick={() => openLightbox([work.image_url], 0)}
+                            className="w-full max-h-[70vh] object-contain rounded-xl bg-black/50 shadow-md cursor-zoom-in"
+                          />
                         )
                       )}
                       <div>
@@ -684,7 +879,6 @@ function App() {
 
             <div className="md:col-span-3 space-y-6">
               
-              {/* En el Taller / Historias */}
               <div className="bg-black/60 backdrop-blur-md p-4 rounded-2xl border border-[#f3e5ab]/30 shadow-xl overflow-x-auto flex items-center gap-4">
                 {currentUser && (
                   <div className="flex flex-col items-center gap-1 shrink-0 cursor-pointer" onClick={() => setShowAddStory(true)}>
@@ -706,7 +900,6 @@ function App() {
                 ))}
               </div>
 
-              {/* Feed General de Publicaciones */}
               <div className="space-y-6">
                 {posts.length > 0 ? (
                   posts.map((post) => (
@@ -721,15 +914,49 @@ function App() {
 
                       <p className="text-gray-200 text-base leading-relaxed">{post.content}</p>
 
-                      {post.works?.image_url && (
-                        <div className="rounded-2xl overflow-hidden bg-black/50 border border-white/10">
-                          {post.works.image_url.match(/\.(mp4|webm|mov|ogg)(\?|$)/i) ? (
-                            <video src={post.works.image_url} className="w-full max-h-[500px] object-cover" controls />
-                          ) : (
-                            <img src={post.works.image_url} alt="Obra" className="w-full max-h-[550px] object-contain mx-auto" />
-                          )}
-                        </div>
-                      )}
+                      {(() => {
+                        const images = (post.media_urls && post.media_urls.length > 0)
+                          ? post.media_urls
+                          : (post.works?.image_url ? [post.works.image_url] : []);
+                        if (images.length === 0) return null;
+                        const idx = carouselIndexByPost[post.id] || 0;
+                        const current = images[idx] || images[0];
+                        return (
+                          <div className="relative rounded-2xl overflow-hidden bg-black border border-white/10 group">
+                            <div className="w-full cursor-zoom-in" onClick={() => openLightbox(images, idx)}>
+                              {isVideo(current) ? (
+                                <video src={current} className="w-full max-h-[80vh] object-contain bg-black" controls onClick={(e) => e.stopPropagation()} />
+                              ) : (
+                                <img src={current} alt="Obra" className="w-full max-h-[80vh] object-contain bg-black" />
+                              )}
+                            </div>
+                            {images.length > 1 && (
+                              <>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); setCarouselIndexByPost(prev => ({ ...prev, [post.id]: (idx - 1 + images.length) % images.length })); }}
+                                  className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/60 border border-white/20 p-2 rounded-full text-white opacity-0 group-hover:opacity-100 transition hover:bg-[#f3e5ab] hover:text-black"
+                                >
+                                  <ChevronLeft size={20} />
+                                </button>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); setCarouselIndexByPost(prev => ({ ...prev, [post.id]: (idx + 1) % images.length })); }}
+                                  className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/60 border border-white/20 p-2 rounded-full text-white opacity-0 group-hover:opacity-100 transition hover:bg-[#f3e5ab] hover:text-black"
+                                >
+                                  <ChevronRight size={20} />
+                                </button>
+                                <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-1.5">
+                                  {images.map((_, i) => (
+                                    <div key={i} className={`w-1.5 h-1.5 rounded-full ${idx === i ? 'bg-[#f3e5ab]' : 'bg-white/40'}`} />
+                                  ))}
+                                </div>
+                                <span className="absolute top-3 right-3 bg-black/70 text-white text-xs px-2 py-1 rounded-full font-bold">
+                                  {idx + 1}/{images.length}
+                                </span>
+                              </>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
                   ))
                 ) : (

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Eye, EyeOff, X, Plus, ChevronLeft, ChevronRight, RotateCw, RotateCcw, Check, Pencil, Heart, MessageCircle } from 'lucide-react';
+import { Eye, EyeOff, X, Plus, ChevronLeft, ChevronRight, RotateCw, RotateCcw, Check, Pencil, Heart, MessageCircle, Camera } from 'lucide-react';
 import { supabase } from './supabaseClient';
 
 function App() {
@@ -68,6 +68,7 @@ function App() {
   const [uploadingStory, setUploadingStory] = useState(false);
   const [viewingStories, setViewingStories] = useState(null);
   const [showAddStory, setShowAddStory] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -144,7 +145,7 @@ function App() {
   const loadPosts = async () => {
     const { data, error } = await supabase
       .from('posts')
-      .select('*, profiles(name, username, curated), works(*), likes(user_id), comments(id, content, created_at, author_id, profiles(name, username))')
+      .select('*, profiles(name, username, curated, avatar_url), works(*), likes(user_id), comments(id, content, created_at, author_id, profiles(name, username))')
       .order('created_at', { ascending: false });
     if (!error) setPosts(data || []);
     else console.error(error);
@@ -202,7 +203,7 @@ function App() {
     const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const { data, error } = await supabase
       .from('procesos')
-      .select('*, profiles(name, username)')
+      .select('*, profiles(name, username, avatar_url)')
       .gte('created_at', twentyFourHoursAgo)
       .order('created_at', { ascending: false });
     if (!error) setStories(data || []);
@@ -216,6 +217,7 @@ function App() {
           user_id: s.user_id,
           name: s.profiles?.name || 'Artista',
           username: s.profiles?.username || '',
+          avatar_url: s.profiles?.avatar_url || null,
           stories: []
         };
       }
@@ -256,6 +258,49 @@ function App() {
     if (error) { console.error(error); alert('Error al comentar: ' + error.message); return; }
     setCommentInputs(prev => ({ ...prev, [postId]: '' }));
     loadPosts();
+  };
+
+  // ---------------- Foto de perfil ----------------
+
+  const renderAvatar = (url, name, sizeClass, textClass, extra = '') => (
+    url ? (
+      <img src={url} alt={name || 'Perfil'} className={`${sizeClass} rounded-full object-cover shrink-0 ${extra}`} />
+    ) : (
+      <div className={`${sizeClass} rounded-full bg-[#f3e5ab] text-black font-bold flex items-center justify-center shrink-0 ${textClass} ${extra}`}>
+        {name?.charAt(0).toUpperCase() || 'A'}
+      </div>
+    )
+  );
+
+  const handleAvatarChange = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !currentUser) return;
+    if (!file.type.startsWith('image/')) { alert('Elegí una imagen.'); return; }
+    if (file.size > 5 * 1024 * 1024) { alert('La foto de perfil puede pesar hasta 5 MB.'); return; }
+    setUploadingAvatar(true);
+    try {
+      const ext = file.name.split('.').pop();
+      const path = `${currentUser.id}/avatar_${Date.now()}.${ext}`;
+      const { error: uploadError } = await supabase.storage.from('artworks').upload(path, file, { upsert: false });
+      if (uploadError) throw uploadError;
+      const { data: urlData } = supabase.storage.from('artworks').getPublicUrl(path);
+      const { error: updateError } = await supabase.from('profiles').update({ avatar_url: urlData.publicUrl }).eq('id', currentUser.id);
+      if (updateError) throw updateError;
+
+      // borrar la foto anterior (si falla, no es grave)
+      const oldPath = currentUser.avatar_url?.split('/artworks/')[1];
+      if (oldPath) supabase.storage.from('artworks').remove([decodeURIComponent(oldPath)]);
+
+      setCurrentUser(prev => ({ ...prev, avatar_url: urlData.publicUrl }));
+      loadPosts();
+      loadStories();
+    } catch (err) {
+      console.error(err);
+      alert('Error al subir la foto de perfil: ' + err.message);
+    } finally {
+      setUploadingAvatar(false);
+    }
   };
 
   // ---------------- Gestión de mis publicaciones (perfil) ----------------
@@ -890,8 +935,20 @@ function App() {
           <main className="w-full max-w-6xl mx-auto bg-black/80 backdrop-blur-xl p-6 md:p-10 rounded-3xl border border-[#f3e5ab]/40 shadow-2xl space-y-8">
             
             <div className="flex flex-col md:flex-row items-center gap-6 border-b border-white/20 pb-8">
-              <div className="w-24 h-24 md:w-32 md:h-32 rounded-full bg-gradient-to-tr from-[#f3e5ab] to-amber-200 text-black font-bold text-4xl md:text-5xl flex items-center justify-center shadow-2xl ring-4 ring-[#f3e5ab]/30">
-                {currentUser.name?.charAt(0).toUpperCase() || 'A'}
+              <div className="relative shrink-0">
+                {renderAvatar(currentUser.avatar_url, currentUser.name, 'w-24 h-24 md:w-32 md:h-32', 'text-4xl md:text-5xl', 'shadow-2xl ring-4 ring-[#f3e5ab]/30')}
+                <label
+                  className="absolute bottom-0 right-0 bg-[#f3e5ab] text-black p-2 rounded-full cursor-pointer hover:bg-white transition shadow-lg border-2 border-black"
+                  title="Cambiar foto de perfil"
+                >
+                  <Camera size={16} />
+                  <input type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} disabled={uploadingAvatar} />
+                </label>
+                {uploadingAvatar && (
+                  <div className="absolute inset-0 rounded-full bg-black/60 flex items-center justify-center text-[#f3e5ab] text-xs font-bold">
+                    Subiendo...
+                  </div>
+                )}
               </div>
               <div className="flex-1 text-center md:text-left space-y-2">
                 <h2 className="text-2xl md:text-3xl font-bold text-[#f3e5ab] tracking-wide">{currentUser.name}</h2>
@@ -1237,9 +1294,7 @@ function App() {
                 {currentUser ? (
                   <div className="flex flex-col gap-3">
                     <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 rounded-full bg-[#f3e5ab] text-black font-bold flex items-center justify-center text-lg shadow">
-                        {currentUser.name?.charAt(0).toUpperCase() || 'A'}
-                      </div>
+                      {renderAvatar(currentUser.avatar_url, currentUser.name, 'w-12 h-12', 'text-lg', 'shadow')}
                       <div className="overflow-hidden">
                         <h4 className="font-bold text-[#f3e5ab] text-sm truncate">{currentUser.name}</h4>
                         <p className="text-xs text-gray-400 truncate">@{currentUser.username}</p>
@@ -1309,9 +1364,13 @@ function App() {
                 {storiesByUser.map((group) => (
                   <div key={group.user_id} onClick={() => openUserStories(group)} className="flex flex-col items-center gap-1 shrink-0 cursor-pointer group">
                     <div className="w-16 h-16 rounded-full p-0.5 bg-gradient-to-tr from-[#f3e5ab] to-amber-300 group-hover:scale-105 transition">
-                      <div className="w-full h-full rounded-full bg-black flex items-center justify-center text-[#f3e5ab] font-bold text-lg">
-                        {group.name.charAt(0).toUpperCase()}
-                      </div>
+                      {group.avatar_url ? (
+                        <img src={group.avatar_url} alt={group.name} className="w-full h-full rounded-full object-cover border-2 border-black" />
+                      ) : (
+                        <div className="w-full h-full rounded-full bg-black flex items-center justify-center text-[#f3e5ab] font-bold text-lg">
+                          {group.name.charAt(0).toUpperCase()}
+                        </div>
+                      )}
                     </div>
                     <span className="text-xs text-gray-300 truncate w-20 text-center">{group.name}</span>
                   </div>
@@ -1323,9 +1382,12 @@ function App() {
                   posts.map((post) => (
                     <div key={post.id} className="bg-black/80 backdrop-blur-md p-6 rounded-3xl border border-[#f3e5ab]/30 shadow-2xl space-y-4">
                       <div className="flex items-center justify-between">
-                        <div>
-                          <h4 className="font-bold text-[#f3e5ab] text-base">{post.profiles?.name || 'Artista'}</h4>
-                          <p className="text-xs text-gray-400">@{post.profiles?.username || 'artista'}</p>
+                        <div className="flex items-center gap-3">
+                          {renderAvatar(post.profiles?.avatar_url, post.profiles?.name, 'w-11 h-11', 'text-base')}
+                          <div>
+                            <h4 className="font-bold text-[#f3e5ab] text-base">{post.profiles?.name || 'Artista'}</h4>
+                            <p className="text-xs text-gray-400">@{post.profiles?.username || 'artista'}</p>
+                          </div>
                         </div>
                         <span className="text-xs text-gray-500">{new Date(post.created_at).toLocaleDateString()}</span>
                       </div>

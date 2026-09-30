@@ -39,10 +39,9 @@ function App() {
 
   const [editorIndex, setEditorIndex] = useState(null);
   const [editorRotation, setEditorRotation] = useState(0);
-  const [editorRatio, setEditorRatio] = useState('original');
-  const [editorZoom, setEditorZoom] = useState(1);
-  const [editorOffset, setEditorOffset] = useState({ x: 0, y: 0 });
   const [editorNatural, setEditorNatural] = useState({ w: 0, h: 0 });
+  const [editorDisplay, setEditorDisplay] = useState({ w: 0, h: 0 });
+  const [cropBox, setCropBox] = useState({ x: 0, y: 0, w: 0, h: 0 });
   const [editorRotatedSrc, setEditorRotatedSrc] = useState(null);
   const [editorBrightness, setEditorBrightness] = useState(100);
   const [editorContrast, setEditorContrast] = useState(100);
@@ -256,79 +255,34 @@ function App() {
     });
   };
 
-  // ---------------- Editor de fotos: recorte / zoom / pan ----------------
+  // ---------------- Editor de fotos: recorte manual con recuadro ----------------
 
-  const EDITOR_VIEWPORT = 340; // tamaño en px del recuadro de recorte
+  const EDITOR_DISPLAY_MAX_W = 480;
+  const EDITOR_DISPLAY_MAX_H = 420;
+  const MIN_CROP = 40;
 
-  const getViewport = (ratio) => {
-    if (ratio === 'square') return { w: EDITOR_VIEWPORT, h: EDITOR_VIEWPORT };
-    if (ratio === 'portrait') return { w: EDITOR_VIEWPORT * 4 / 5, h: EDITOR_VIEWPORT };
-    return null; // 'original' -> sin recorte, se ve la imagen entera
-  };
-
-  const getBaseScale = (natural, vp) => {
-    if (!natural.w || !natural.h || !vp) return 1;
-    return Math.max(vp.w / natural.w, vp.h / natural.h);
-  };
-
-  const clampOffset = (offset, natural, vp, zoom) => {
-    if (!vp) return { x: 0, y: 0 };
-    const scale = getBaseScale(natural, vp) * zoom;
-    const w = natural.w * scale;
-    const h = natural.h * scale;
-    const minX = Math.min(0, vp.w - w);
-    const minY = Math.min(0, vp.h - h);
-    return {
-      x: Math.min(0, Math.max(minX, offset.x)),
-      y: Math.min(0, Math.max(minY, offset.y))
-    };
-  };
-
-  const centerOffset = (natural, vp, zoom) => {
-    if (!vp) return { x: 0, y: 0 };
-    const scale = getBaseScale(natural, vp) * zoom;
-    const w = natural.w * scale;
-    const h = natural.h * scale;
-    return { x: (vp.w - w) / 2, y: (vp.h - h) / 2 };
-  };
-
-  const handlePointerDown = (e) => {
-    editorDragRef.current = { startX: e.clientX, startY: e.clientY, offset: { ...editorOffset } };
-  };
-
-  const handlePointerMove = (e) => {
-    const drag = editorDragRef.current;
-    if (!drag) return;
-    const dx = e.clientX - drag.startX;
-    const dy = e.clientY - drag.startY;
-    const vp = getViewport(editorRatio);
-    setEditorOffset(clampOffset({ x: drag.offset.x + dx, y: drag.offset.y + dy }, editorNatural, vp, editorZoom));
-  };
-
-  const handlePointerUp = () => { editorDragRef.current = null; };
-
-  const onZoomChange = (z) => {
-    setEditorZoom(z);
-    const vp = getViewport(editorRatio);
-    setEditorOffset(prev => clampOffset(prev, editorNatural, vp, z));
+  const computeDisplay = (natural) => {
+    if (!natural.w || !natural.h) return { w: 0, h: 0 };
+    const scale = Math.min(EDITOR_DISPLAY_MAX_W / natural.w, EDITOR_DISPLAY_MAX_H / natural.h, 1);
+    return { w: Math.round(natural.w * scale), h: Math.round(natural.h * scale) };
   };
 
   const openEditor = (idx) => {
     setEditorIndex(idx);
     setEditorRotation(0);
-    setEditorRatio('original');
-    setEditorZoom(1);
     setEditorBrightness(100);
     setEditorContrast(100);
     setEditorSaturation(100);
     setEditorRotatedSrc(null);
     setEditorNatural({ w: 0, h: 0 });
-    setEditorOffset({ x: 0, y: 0 });
+    setEditorDisplay({ w: 0, h: 0 });
+    setCropBox({ x: 0, y: 0, w: 0, h: 0 });
     regenerateRotated(mediaPreviews[idx].url, 0).then(({ dataUrl, w, h }) => {
       setEditorRotatedSrc(dataUrl);
       setEditorNatural({ w, h });
-      const vp = getViewport('original');
-      setEditorOffset(centerOffset({ w, h }, vp, 1));
+      const display = computeDisplay({ w, h });
+      setEditorDisplay(display);
+      setCropBox({ x: 0, y: 0, w: display.w, h: display.h });
     });
   };
 
@@ -342,42 +296,61 @@ function App() {
     setEditorRotation(newRot);
     setEditorRotatedSrc(dataUrl);
     setEditorNatural({ w, h });
-    const vp = getViewport(editorRatio);
-    setEditorOffset(centerOffset({ w, h }, vp, editorZoom));
+    const display = computeDisplay({ w, h });
+    setEditorDisplay(display);
+    setCropBox({ x: 0, y: 0, w: display.w, h: display.h });
   };
 
-  const selectRatio = (r) => {
-    setEditorRatio(r);
-    setEditorZoom(1);
-    const vp = getViewport(r);
-    setEditorOffset(centerOffset(editorNatural, vp, 1));
+  const handleCropBoxPointerDown = (e) => {
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    editorDragRef.current = { mode: 'move', startX: e.clientX, startY: e.clientY, box: { ...cropBox } };
+  };
+
+  const handleResizePointerDown = (e) => {
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    editorDragRef.current = { mode: 'resize', startX: e.clientX, startY: e.clientY, box: { ...cropBox } };
+  };
+
+  const handleCropPointerMove = (e) => {
+    const drag = editorDragRef.current;
+    if (!drag || !editorDisplay.w) return;
+    const dx = e.clientX - drag.startX;
+    const dy = e.clientY - drag.startY;
+    if (drag.mode === 'move') {
+      const nx = Math.max(0, Math.min(editorDisplay.w - drag.box.w, drag.box.x + dx));
+      const ny = Math.max(0, Math.min(editorDisplay.h - drag.box.h, drag.box.y + dy));
+      setCropBox(prev => ({ ...prev, x: nx, y: ny }));
+    } else if (drag.mode === 'resize') {
+      const maxW = editorDisplay.w - drag.box.x;
+      const maxH = editorDisplay.h - drag.box.y;
+      const nw = Math.max(MIN_CROP, Math.min(maxW, drag.box.w + dx));
+      const nh = Math.max(MIN_CROP, Math.min(maxH, drag.box.h + dy));
+      setCropBox(prev => ({ ...prev, w: nw, h: nh }));
+    }
+  };
+
+  const handleCropPointerUp = () => {
+    editorDragRef.current = null;
   };
 
   const applyEditAndSave = () => {
-    if (editorIndex === null || !editorRotatedSrc) return;
+    if (editorIndex === null || !editorRotatedSrc || !editorDisplay.w) return;
     setSavingEdit(true);
     const img = new Image();
     img.onload = () => {
-      const vp = getViewport(editorRatio);
+      const scale = editorNatural.w / editorDisplay.w;
+      const srcX = cropBox.x * scale;
+      const srcY = cropBox.y * scale;
+      const srcW = cropBox.w * scale;
+      const srcH = cropBox.h * scale;
       const canvas = document.createElement('canvas');
-      let sx, sy, sw, sh;
-
-      if (!vp) {
-        sx = 0; sy = 0; sw = editorNatural.w; sh = editorNatural.h;
-      } else {
-        const scale = getBaseScale(editorNatural, vp) * editorZoom;
-        sx = -editorOffset.x / scale;
-        sy = -editorOffset.y / scale;
-        sw = vp.w / scale;
-        sh = vp.h / scale;
-      }
-
-      canvas.width = Math.max(1, Math.round(sw));
-      canvas.height = Math.max(1, Math.round(sh));
+      canvas.width = Math.max(1, Math.round(srcW));
+      canvas.height = Math.max(1, Math.round(srcH));
       const ctx = canvas.getContext('2d');
       ctx.filter = `brightness(${editorBrightness}%) contrast(${editorContrast}%) saturate(${editorSaturation}%)`;
-      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-
+      ctx.drawImage(img, srcX, srcY, srcW, srcH, 0, 0, canvas.width, canvas.height);
       canvas.toBlob((blob) => {
         if (!blob) { setSavingEdit(false); return; }
         const item = mediaPreviews[editorIndex];
@@ -637,107 +610,103 @@ function App() {
 
         {editorIndex !== null && mediaPreviews[editorIndex] && (
           <div className="fixed inset-0 z-[95] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-[#111] border border-[#f3e5ab]/50 rounded-2xl p-5 w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="bg-[#111] border border-[#f3e5ab]/50 rounded-2xl p-5 w-full max-w-4xl shadow-2xl max-h-[90vh] overflow-y-auto">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-[#f3e5ab] font-bold text-base">✏️ Editar foto</h3>
                 <button onClick={closeEditor}><X size={20} className="text-gray-400 hover:text-white" /></button>
               </div>
 
-              {(() => {
-                const vp = getViewport(editorRatio);
-                if (!vp) {
-                  return (
-                    <div className="rounded-xl overflow-hidden bg-black flex items-center justify-center border border-white/10" style={{ maxHeight: '45vh' }}>
-                      {editorRotatedSrc && (
-                        <img
-                          src={editorRotatedSrc}
-                          alt="Editando"
-                          className="max-h-[45vh] w-auto"
-                          style={{ filter: `brightness(${editorBrightness}%) contrast(${editorContrast}%) saturate(${editorSaturation}%)` }}
-                        />
-                      )}
-                    </div>
-                  );
-                }
-                const scale = getBaseScale(editorNatural, vp) * editorZoom;
-                return (
-                  <div
-                    className="relative mx-auto rounded-xl overflow-hidden bg-black border-2 border-[#f3e5ab]/60 touch-none cursor-move"
-                    style={{ width: vp.w, height: vp.h, maxWidth: '100%' }}
-                    onPointerDown={handlePointerDown}
-                    onPointerMove={handlePointerMove}
-                    onPointerUp={handlePointerUp}
-                    onPointerLeave={handlePointerUp}
-                  >
-                    {editorRotatedSrc && (
+              <div className="flex flex-col md:flex-row gap-5">
+
+                {/* Foto + recuadro de recorte manual */}
+                <div className="flex-1 flex items-center justify-center bg-black rounded-xl border border-white/10 p-4" style={{ minHeight: 320 }}>
+                  {editorRotatedSrc && editorDisplay.w > 0 && (
+                    <div
+                      className="relative overflow-hidden rounded"
+                      style={{ width: editorDisplay.w, height: editorDisplay.h }}
+                    >
                       <img
                         src={editorRotatedSrc}
-                        alt="Recortando"
+                        alt="Editando"
                         draggable={false}
                         style={{
-                          position: 'absolute',
-                          left: editorOffset.x,
-                          top: editorOffset.y,
-                          width: editorNatural.w * scale,
-                          height: editorNatural.h * scale,
+                          width: editorDisplay.w,
+                          height: editorDisplay.h,
                           filter: `brightness(${editorBrightness}%) contrast(${editorContrast}%) saturate(${editorSaturation}%)`,
                           userSelect: 'none'
                         }}
                       />
-                    )}
+                      <div
+                        onPointerDown={handleCropBoxPointerDown}
+                        onPointerMove={handleCropPointerMove}
+                        onPointerUp={handleCropPointerUp}
+                        onPointerLeave={handleCropPointerUp}
+                        className="absolute border-2 border-[#f3e5ab] cursor-move touch-none"
+                        style={{
+                          left: cropBox.x,
+                          top: cropBox.y,
+                          width: cropBox.w,
+                          height: cropBox.h,
+                          boxShadow: '0 0 0 9999px rgba(0,0,0,0.55)'
+                        }}
+                      >
+                        <div
+                          onPointerDown={handleResizePointerDown}
+                          onPointerMove={handleCropPointerMove}
+                          onPointerUp={handleCropPointerUp}
+                          onPointerLeave={handleCropPointerUp}
+                          className="absolute -right-2.5 -bottom-2.5 w-6 h-6 bg-[#f3e5ab] rounded-full border-2 border-black cursor-se-resize touch-none shadow-lg"
+                          title="Arrastrá para agrandar o achicar"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Panel lateral de herramientas */}
+                <div className="w-full md:w-64 shrink-0 space-y-5">
+                  <div>
+                    <p className="text-xs text-gray-300 mb-2 font-bold uppercase tracking-wider">Rotación</p>
+                    <div className="flex gap-2">
+                      <button type="button" onClick={() => rotateEditor(-90)} className="flex-1 bg-black/60 border border-white/20 p-2.5 rounded-xl text-white hover:bg-[#f3e5ab] hover:text-black transition flex items-center justify-center">
+                        <RotateCcw size={18} />
+                      </button>
+                      <button type="button" onClick={() => rotateEditor(90)} className="flex-1 bg-black/60 border border-white/20 p-2.5 rounded-xl text-white hover:bg-[#f3e5ab] hover:text-black transition flex items-center justify-center">
+                        <RotateCw size={18} />
+                      </button>
+                    </div>
                   </div>
-                );
-              })()}
 
-              <div className="flex items-center justify-center flex-wrap gap-2 mt-4">
-                <button type="button" onClick={() => rotateEditor(-90)} className="bg-black/60 border border-white/20 p-2.5 rounded-full text-white hover:bg-[#f3e5ab] hover:text-black transition">
-                  <RotateCcw size={18} />
-                </button>
-                <button type="button" onClick={() => rotateEditor(90)} className="bg-black/60 border border-white/20 p-2.5 rounded-full text-white hover:bg-[#f3e5ab] hover:text-black transition">
-                  <RotateCw size={18} />
-                </button>
-                {['original', 'square', 'portrait'].map((r) => (
+                  <div>
+                    <p className="text-xs text-gray-300 mb-1 font-bold uppercase tracking-wider">Recorte manual</p>
+                    <p className="text-xs text-gray-500">Arrastrá el recuadro para moverlo, o el punto de la esquina para agrandarlo o achicarlo.</p>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div>
+                      <label className="text-xs text-gray-300 flex justify-between"><span>Brillo</span><span>{editorBrightness}%</span></label>
+                      <input type="range" min="50" max="150" value={editorBrightness} onChange={(e) => setEditorBrightness(Number(e.target.value))} className="w-full accent-[#f3e5ab]" />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-300 flex justify-between"><span>Contraste</span><span>{editorContrast}%</span></label>
+                      <input type="range" min="50" max="150" value={editorContrast} onChange={(e) => setEditorContrast(Number(e.target.value))} className="w-full accent-[#f3e5ab]" />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-300 flex justify-between"><span>Saturación</span><span>{editorSaturation}%</span></label>
+                      <input type="range" min="0" max="200" value={editorSaturation} onChange={(e) => setEditorSaturation(Number(e.target.value))} className="w-full accent-[#f3e5ab]" />
+                    </div>
+                  </div>
+
                   <button
-                    key={r}
                     type="button"
-                    onClick={() => selectRatio(r)}
-                    className={`px-3 py-2 rounded-full text-xs font-bold border transition ${editorRatio === r ? 'bg-[#f3e5ab] text-black border-[#f3e5ab]' : 'bg-black/60 text-gray-300 border-white/20 hover:border-[#f3e5ab]'}`}
+                    onClick={applyEditAndSave}
+                    disabled={savingEdit || !editorRotatedSrc}
+                    className="w-full bg-[#f3e5ab] text-black font-bold py-3 rounded-xl disabled:opacity-50 hover:bg-white transition text-sm flex items-center justify-center gap-2"
                   >
-                    {r === 'original' ? 'Sin recorte' : r === 'square' ? 'Recortar 1:1' : 'Recortar 4:5'}
+                    <Check size={16} /> {savingEdit ? 'Guardando...' : 'Aplicar cambios'}
                   </button>
-                ))}
-              </div>
-
-              {getViewport(editorRatio) && (
-                <div className="mt-3">
-                  <label className="text-xs text-gray-300 block mb-1">Zoom (arrastrá la foto para moverla)</label>
-                  <input type="range" min="1" max="3" step="0.01" value={editorZoom} onChange={(e) => onZoomChange(Number(e.target.value))} className="w-full accent-[#f3e5ab]" />
-                </div>
-              )}
-
-              <div className="mt-5 space-y-3">
-                <div>
-                  <label className="text-xs text-gray-300 flex justify-between"><span>Brillo</span><span>{editorBrightness}%</span></label>
-                  <input type="range" min="50" max="150" value={editorBrightness} onChange={(e) => setEditorBrightness(Number(e.target.value))} className="w-full accent-[#f3e5ab]" />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-300 flex justify-between"><span>Contraste</span><span>{editorContrast}%</span></label>
-                  <input type="range" min="50" max="150" value={editorContrast} onChange={(e) => setEditorContrast(Number(e.target.value))} className="w-full accent-[#f3e5ab]" />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-300 flex justify-between"><span>Saturación</span><span>{editorSaturation}%</span></label>
-                  <input type="range" min="0" max="200" value={editorSaturation} onChange={(e) => setEditorSaturation(Number(e.target.value))} className="w-full accent-[#f3e5ab]" />
                 </div>
               </div>
-
-              <button
-                type="button"
-                onClick={applyEditAndSave}
-                disabled={savingEdit || !editorRotatedSrc}
-                className="mt-6 w-full bg-[#f3e5ab] text-black font-bold py-3 rounded-xl disabled:opacity-50 hover:bg-white transition text-sm flex items-center justify-center gap-2"
-              >
-                <Check size={16} /> {savingEdit ? 'Guardando...' : 'Aplicar cambios'}
-              </button>
             </div>
           </div>
         )}

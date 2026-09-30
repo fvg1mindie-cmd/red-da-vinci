@@ -256,31 +256,53 @@ function App() {
     });
   };
 
-  const getViewport = (ratio) => {
-    if (ratio === 'square') return { w: 320, h: 320 };
-    if (ratio === 'portrait') return { w: 320, h: 400 };
+  const EDITOR_MAX_W = 380;
+  const EDITOR_MAX_H = 380;
+
+  const computeDisplay = (natural) => {
+    if (!natural.w || !natural.h) return { w: 0, h: 0 };
+    const scale = Math.min(EDITOR_MAX_W / natural.w, EDITOR_MAX_H / natural.h);
+    return { w: Math.round(natural.w * scale), h: Math.round(natural.h * scale) };
+  };
+
+  const getRatioValue = (ratio) => {
+    if (ratio === 'square') return 1;
+    if (ratio === 'portrait') return 4 / 5;
     return null;
   };
 
-  const getBaseScale = (natural, viewport) => {
-    if (!viewport || !natural.w || !natural.h) return 1;
-    return Math.max(viewport.w / natural.w, viewport.h / natural.h);
+  const initCropBox = (display, ratio) => {
+    if (!display.w) return { x: 0, y: 0, w: 0, h: 0 };
+    const ratioVal = getRatioValue(ratio);
+    if (!ratioVal) {
+      return { x: 0, y: 0, w: display.w, h: display.h };
+    }
+    let w = display.w * 0.9;
+    let h = w / ratioVal;
+    if (h > display.h * 0.9) {
+      h = display.h * 0.9;
+      w = h * ratioVal;
+    }
+    return { x: (display.w - w) / 2, y: (display.h - h) / 2, w, h };
   };
 
   const openEditor = (idx) => {
     setEditorIndex(idx);
     setEditorRotation(0);
-    setEditorRatio('original');
-    setEditorZoom(1);
-    setEditorOffset({ x: 0, y: 0 });
+    setEditorRatio('free');
     setEditorBrightness(100);
     setEditorContrast(100);
     setEditorSaturation(100);
     setEditorRotatedSrc(null);
     setEditorNatural({ w: 0, h: 0 });
+    setEditorDisplay({ w: 0, h: 0 });
+    setCropBox({ x: 0, y: 0, w: 0, h: 0 });
     regenerateRotated(mediaPreviews[idx].url, 0).then(({ dataUrl, w, h }) => {
       setEditorRotatedSrc(dataUrl);
       setEditorNatural({ w, h });
+      const display = computeDisplay({ w, h });
+      setEditorDisplay(display);
+      setCropBox(initCropBox(display, 'free'));
     });
   };
 
@@ -294,81 +316,71 @@ function App() {
     setEditorRotation(newRot);
     setEditorRotatedSrc(dataUrl);
     setEditorNatural({ w, h });
-    setEditorZoom(1);
-    const vp = getViewport(editorRatio);
-    if (vp) {
-      const scale = getBaseScale({ w, h }, vp);
-      setEditorOffset({ x: (vp.w - w * scale) / 2, y: (vp.h - h * scale) / 2 });
-    } else {
-      setEditorOffset({ x: 0, y: 0 });
-    }
+    const display = computeDisplay({ w, h });
+    setEditorDisplay(display);
+    setCropBox(initCropBox(display, editorRatio));
   };
 
   const selectRatio = (r) => {
     setEditorRatio(r);
-    setEditorZoom(1);
-    const vp = getViewport(r);
-    if (vp && editorNatural.w) {
-      const scale = getBaseScale(editorNatural, vp);
-      setEditorOffset({ x: (vp.w - editorNatural.w * scale) / 2, y: (vp.h - editorNatural.h * scale) / 2 });
-    } else {
-      setEditorOffset({ x: 0, y: 0 });
+    setCropBox(initCropBox(editorDisplay, r));
+  };
+
+  const cropDragRef = useRef(null);
+
+  const handleCropBoxPointerDown = (e) => {
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    cropDragRef.current = { mode: 'move', startX: e.clientX, startY: e.clientY, box: { ...cropBox } };
+  };
+
+  const handleResizePointerDown = (e) => {
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    cropDragRef.current = { mode: 'resize', startX: e.clientX, startY: e.clientY, box: { ...cropBox } };
+  };
+
+  const handleCropPointerMove = (e) => {
+    const drag = cropDragRef.current;
+    if (!drag || !editorDisplay.w) return;
+    const dx = e.clientX - drag.startX;
+    const dy = e.clientY - drag.startY;
+    if (drag.mode === 'move') {
+      let nx = Math.max(0, Math.min(editorDisplay.w - drag.box.w, drag.box.x + dx));
+      let ny = Math.max(0, Math.min(editorDisplay.h - drag.box.h, drag.box.y + dy));
+      setCropBox(prev => ({ ...prev, x: nx, y: ny }));
+    } else if (drag.mode === 'resize') {
+      const ratioVal = getRatioValue(editorRatio);
+      const maxW = editorDisplay.w - drag.box.x;
+      const maxH = editorDisplay.h - drag.box.y;
+      if (ratioVal) {
+        let w = Math.max(40, drag.box.w + dx);
+        let h = w / ratioVal;
+        if (h > maxH) { h = maxH; w = h * ratioVal; }
+        if (w > maxW) { w = maxW; h = w / ratioVal; }
+        setCropBox(prev => ({ ...prev, w: Math.max(40, w), h: Math.max(40, h) }));
+      } else {
+        const nw = Math.max(40, Math.min(maxW, drag.box.w + dx));
+        const nh = Math.max(40, Math.min(maxH, drag.box.h + dy));
+        setCropBox(prev => ({ ...prev, w: nw, h: nh }));
+      }
     }
   };
 
-  const onZoomChange = (val) => {
-    setEditorZoom(val);
-    const vp = getViewport(editorRatio);
-    if (!vp) return;
-    const scale = getBaseScale(editorNatural, vp) * val;
-    const dispW = editorNatural.w * scale;
-    const dispH = editorNatural.h * scale;
-    setEditorOffset(prev => ({
-      x: Math.min(0, Math.max(vp.w - dispW, prev.x)),
-      y: Math.min(0, Math.max(vp.h - dispH, prev.y))
-    }));
-  };
-
-  const handlePointerDown = (e) => {
-    if (!getViewport(editorRatio)) return;
-    e.currentTarget.setPointerCapture(e.pointerId);
-    editorDragRef.current = { startX: e.clientX, startY: e.clientY, offX: editorOffset.x, offY: editorOffset.y };
-  };
-
-  const handlePointerMove = (e) => {
-    if (!editorDragRef.current) return;
-    const vp = getViewport(editorRatio);
-    if (!vp) return;
-    const scale = getBaseScale(editorNatural, vp) * editorZoom;
-    const dispW = editorNatural.w * scale;
-    const dispH = editorNatural.h * scale;
-    const dx = e.clientX - editorDragRef.current.startX;
-    const dy = e.clientY - editorDragRef.current.startY;
-    let nx = editorDragRef.current.offX + dx;
-    let ny = editorDragRef.current.offY + dy;
-    nx = Math.min(0, Math.max(vp.w - dispW, nx));
-    ny = Math.min(0, Math.max(vp.h - dispH, ny));
-    setEditorOffset({ x: nx, y: ny });
-  };
-
-  const handlePointerUp = () => {
-    editorDragRef.current = null;
+  const handleCropPointerUp = () => {
+    cropDragRef.current = null;
   };
 
   const applyEditAndSave = () => {
-    if (editorIndex === null || !editorRotatedSrc) return;
+    if (editorIndex === null || !editorRotatedSrc || !editorDisplay.w) return;
     setSavingEdit(true);
     const img = new Image();
     img.onload = () => {
-      const vp = getViewport(editorRatio);
-      let srcX = 0, srcY = 0, srcW = editorNatural.w, srcH = editorNatural.h;
-      if (vp) {
-        const scale = getBaseScale(editorNatural, vp) * editorZoom;
-        srcX = -editorOffset.x / scale;
-        srcY = -editorOffset.y / scale;
-        srcW = vp.w / scale;
-        srcH = vp.h / scale;
-      }
+      const scale = editorNatural.w / editorDisplay.w;
+      const srcX = cropBox.x * scale;
+      const srcY = cropBox.y * scale;
+      const srcW = cropBox.w * scale;
+      const srcH = cropBox.h * scale;
       const canvas = document.createElement('canvas');
       canvas.width = Math.max(1, Math.round(srcW));
       canvas.height = Math.max(1, Math.round(srcH));

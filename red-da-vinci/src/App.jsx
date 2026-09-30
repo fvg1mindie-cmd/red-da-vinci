@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Eye, EyeOff, X, Plus, ChevronLeft, ChevronRight, RotateCw, RotateCcw, Check, Pencil } from 'lucide-react';
+import { Eye, EyeOff, X, Plus, ChevronLeft, ChevronRight, RotateCw, RotateCcw, Check, Pencil, Heart, MessageCircle } from 'lucide-react';
 import { supabase } from './supabaseClient';
 
 function App() {
@@ -36,6 +36,9 @@ function App() {
   const [selectedMediaFiles, setSelectedMediaFiles] = useState([]);
   const [mediaPreviews, setMediaPreviews] = useState([]);
   const [uploadingMedia, setUploadingMedia] = useState(false);
+
+  const [commentInputs, setCommentInputs] = useState({});
+  const [openComments, setOpenComments] = useState({});
 
   const [editorIndex, setEditorIndex] = useState(null);
   const [editorRotation, setEditorRotation] = useState(0);
@@ -132,9 +135,10 @@ function App() {
   const loadPosts = async () => {
     const { data, error } = await supabase
       .from('posts')
-      .select('*, profiles(name, username, curated), works(*)')
+      .select('*, profiles(name, username, curated), works(*), likes(user_id), comments(id, content, created_at, author_id, profiles(name, username))')
       .order('created_at', { ascending: false });
     if (!error) setPosts(data || []);
+    else console.error(error);
   };
 
   const loadArtists = async () => {
@@ -193,6 +197,36 @@ function App() {
   const isVideo = (url) => !!url && /\.(mp4|webm|mov|ogg)(\?|$)/i.test(url);
 
   const openLightbox = (images, index = 0) => setLightbox({ images, index });
+
+  // ---------------- Likes y comentarios ----------------
+
+  const isLikedByMe = (post) => !!currentUser && (post.likes || []).some(l => l.user_id === currentUser.id);
+
+  const handleToggleLike = async (post) => {
+    if (!currentUser) { alert('⚠️ Debes iniciar sesión para dar me gusta.'); return; }
+    if (isLikedByMe(post)) {
+      const { error } = await supabase.from('likes').delete().eq('post_id', post.id).eq('user_id', currentUser.id);
+      if (error) { console.error(error); return; }
+    } else {
+      const { error } = await supabase.from('likes').insert({ post_id: post.id, user_id: currentUser.id });
+      if (error) { console.error(error); return; }
+    }
+    loadPosts();
+  };
+
+  const toggleComments = (postId) => {
+    setOpenComments(prev => ({ ...prev, [postId]: !prev[postId] }));
+  };
+
+  const handleAddComment = async (postId) => {
+    if (!currentUser) { alert('⚠️ Debes iniciar sesión para comentar.'); return; }
+    const content = (commentInputs[postId] || '').trim();
+    if (!content) return;
+    const { error } = await supabase.from('comments').insert({ post_id: postId, author_id: currentUser.id, content });
+    if (error) { console.error(error); alert('Error al comentar: ' + error.message); return; }
+    setCommentInputs(prev => ({ ...prev, [postId]: '' }));
+    loadPosts();
+  };
 
   const handleMediaChange = (e) => {
     const files = Array.from(e.target.files || []);
@@ -1091,6 +1125,61 @@ function App() {
                           </div>
                         );
                       })()}
+
+                      {/* Barra de me gusta y comentarios */}
+                      <div className="flex items-center gap-6 pt-1 border-t border-white/10">
+                        <button
+                          onClick={() => handleToggleLike(post)}
+                          className={`flex items-center gap-2 text-sm font-bold transition ${isLikedByMe(post) ? 'text-red-400' : 'text-gray-300 hover:text-red-400'}`}
+                        >
+                          <Heart size={18} fill={isLikedByMe(post) ? 'currentColor' : 'none'} />
+                          {(post.likes || []).length}
+                        </button>
+                        <button
+                          onClick={() => toggleComments(post.id)}
+                          className="flex items-center gap-2 text-sm font-bold text-gray-300 hover:text-[#f3e5ab] transition"
+                        >
+                          <MessageCircle size={18} />
+                          {(post.comments || []).length}
+                        </button>
+                      </div>
+
+                      {openComments[post.id] && (
+                        <div className="pt-3 space-y-3 border-t border-white/10">
+                          {(post.comments || [])
+                            .slice()
+                            .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+                            .map((c) => (
+                              <div key={c.id} className="text-sm">
+                                <span className="font-bold text-[#f3e5ab]">{c.profiles?.name || 'Usuario'}</span>{' '}
+                                <span className="text-gray-300">{c.content}</span>
+                              </div>
+                            ))}
+                          {(post.comments || []).length === 0 && (
+                            <p className="text-xs text-gray-500">Todavía no hay comentarios. Sé el primero.</p>
+                          )}
+                          {currentUser ? (
+                            <div className="flex gap-2 pt-1">
+                              <input
+                                type="text"
+                                value={commentInputs[post.id] || ''}
+                                onChange={(e) => setCommentInputs(prev => ({ ...prev, [post.id]: e.target.value }))}
+                                onKeyDown={(e) => { if (e.key === 'Enter') handleAddComment(post.id); }}
+                                placeholder="Escribí un comentario..."
+                                className="flex-1 bg-black/50 border border-white/20 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-[#f3e5ab]"
+                              />
+                              <button
+                                onClick={() => handleAddComment(post.id)}
+                                className="bg-[#f3e5ab] text-black font-bold px-3 py-2 rounded-lg text-xs hover:bg-white transition"
+                              >
+                                Enviar
+                              </button>
+                            </div>
+                          ) : (
+                            <p className="text-xs text-gray-500">Iniciá sesión para comentar.</p>
+                          )}
+                        </div>
+                      )}
                     </div>
                   ))
                 ) : (

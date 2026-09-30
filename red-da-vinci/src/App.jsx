@@ -1,6 +1,25 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Eye, EyeOff, X, Plus, ChevronLeft, ChevronRight, RotateCw, RotateCcw, Check, Pencil, Heart, MessageCircle, Camera } from 'lucide-react';
+import { Eye, EyeOff, X, Plus, ChevronLeft, ChevronRight, RotateCw, RotateCcw, Check, Pencil, Heart, MessageCircle, Camera, Flag } from 'lucide-react';
 import { supabase } from './supabaseClient';
+
+const RULES = [
+  { t: 'Publicá solo obra propia.', d: 'Si no la creaste vos, no la subas. Copiar o reclamar como tuyo el trabajo de otro artista está prohibido.' },
+  { t: 'Contenido de arte y proceso creativo.', d: 'Las publicaciones deben tratar de tu obra, tu proceso o tu reflexión artística. No se permite spam, publicidad ni enlaces comerciales ajenos al arte.' },
+  { t: 'Nada de contenido sexual explícito ni violencia gratuita.', d: 'El arte puede ser intenso, pero no se acepta pornografía ni imágenes de crueldad real.' },
+  { t: 'Cero discriminación.', d: 'No se permiten mensajes de odio, acoso ni ataques a personas por su origen, género, orientación, religión u otra condición.' },
+  { t: 'Respeto en los comentarios.', d: 'La crítica es bienvenida; los insultos y las amenazas no.' },
+  { t: 'Si usaste inteligencia artificial, indicalo.', d: 'Decí en la descripción si la obra fue creada o asistida con IA.' },
+  { t: 'Tokenizar solo lo que te pertenece.', d: 'Solo podés ofrecer como NFT o tokens obras de tu autoría y sobre las que tengas todos los derechos.' },
+  { t: 'Nada ilegal ni que involucre a menores.', d: 'Cualquier contenido de este tipo se elimina de inmediato y puede ser denunciado.' }
+];
+
+const REPORT_REASONS = [
+  'No es obra propia',
+  'Contenido sexual explícito o violento',
+  'Discriminación o acoso',
+  'Spam o publicidad',
+  'Otro motivo'
+];
 
 function App() {
   const [activeTab, setActiveTab] = useState('home');
@@ -69,6 +88,18 @@ function App() {
   const [viewingStories, setViewingStories] = useState(null);
   const [showAddStory, setShowAddStory] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [showRules, setShowRules] = useState(false);
+  const [rulesChecked, setRulesChecked] = useState(false);
+  const [acceptingRules, setAcceptingRules] = useState(false);
+
+  const [reportingPost, setReportingPost] = useState(null);
+  const [reportReason, setReportReason] = useState(REPORT_REASONS[0]);
+  const [reportDetail, setReportDetail] = useState('');
+  const [sendingReport, setSendingReport] = useState(false);
+
+  const [adminPending, setAdminPending] = useState([]);
+  const [adminReports, setAdminReports] = useState([]);
+  const [adminProfiles, setAdminProfiles] = useState([]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -142,10 +173,15 @@ function App() {
     }
   }, [currentUser]);
 
+  useEffect(() => {
+    if (currentUser?.is_admin) loadAdminData();
+  }, [currentUser, activeTab]);
+
   const loadPosts = async () => {
     const { data, error } = await supabase
       .from('posts')
       .select('*, profiles(name, username, curated, avatar_url), works(*), likes(user_id), comments(id, content, created_at, author_id, profiles(name, username))')
+      .eq('status', 'approved')
       .order('created_at', { ascending: false });
     if (!error) setPosts(data || []);
     else console.error(error);
@@ -258,6 +294,137 @@ function App() {
     if (error) { console.error(error); alert('Error al comentar: ' + error.message); return; }
     setCommentInputs(prev => ({ ...prev, [postId]: '' }));
     loadPosts();
+  };
+
+  const friendlyUploadError = (err) => {
+    const msg = (err?.message || '').toLowerCase();
+    if (msg.includes('maximum allowed size') || msg.includes('exceeded') || msg.includes('too large') || msg.includes('payload')) {
+      return 'El archivo es más grande de lo que permite el servidor. Probá con uno más liviano o comprimilo.';
+    }
+    return err?.message || 'Revisá la conexión.';
+  };
+
+  // ---------------- Denuncias y moderación ----------------
+
+  const openReport = (post) => {
+    if (!currentUser) { alert('⚠️ Debes iniciar sesión para denunciar.'); return; }
+    setReportingPost(post);
+    setReportReason(REPORT_REASONS[0]);
+    setReportDetail('');
+  };
+
+  const submitReport = async () => {
+    if (!reportingPost || !currentUser) return;
+    setSendingReport(true);
+    const { error } = await supabase.from('reports').insert({
+      post_id: reportingPost.id,
+      reporter_id: currentUser.id,
+      reason: reportReason,
+      detail: reportDetail.trim() || null
+    });
+    setSendingReport(false);
+    if (error) {
+      if (error.code === '23505') alert('Ya denunciaste esta publicación. Gracias.');
+      else { console.error(error); alert('No se pudo enviar la denuncia: ' + error.message); }
+    } else {
+      alert('Gracias. Revisaremos la publicación.');
+    }
+    setReportingPost(null);
+  };
+
+  const loadAdminData = async () => {
+    if (!currentUser?.is_admin) return;
+    const { data: pend, error: e1 } = await supabase
+      .from('posts')
+      .select('*, profiles(name, username, avatar_url), works(*)')
+      .eq('status', 'pending')
+      .order('created_at', { ascending: true });
+    if (e1) console.error(e1); else setAdminPending(pend || []);
+
+    const { data: reps, error: e2 } = await supabase
+      .from('reports')
+      .select('*, profiles(name, username), posts(id, content, status, media_urls, work_id, created_at, works(*), profiles(name, username))')
+      .order('created_at', { ascending: false });
+    if (e2) console.error(e2);
+    else {
+      const map = {};
+      (reps || []).forEach(r => {
+        if (!r.posts) return;
+        if (!map[r.post_id]) map[r.post_id] = { post: r.posts, reports: [] };
+        map[r.post_id].reports.push(r);
+      });
+      setAdminReports(Object.values(map));
+    }
+
+    const { data: profs, error: e3 } = await supabase
+      .from('profiles')
+      .select('id, name, username, avatar_url, created_at')
+      .or('curated.is.null,curated.eq.false')
+      .order('created_at', { ascending: false })
+      .limit(50);
+    if (e3) console.error(e3); else setAdminProfiles(profs || []);
+  };
+
+  const setPostStatus = async (postId, status) => {
+    const { error } = await supabase.from('posts').update({ status }).eq('id', postId);
+    if (error) { console.error(error); alert('Error: ' + error.message); return; }
+    await loadAdminData();
+    loadPosts();
+  };
+
+  const dismissReports = async (postId) => {
+    const { error } = await supabase.from('reports').delete().eq('post_id', postId);
+    if (error) { console.error(error); alert('Error: ' + error.message); return; }
+    loadAdminData();
+  };
+
+  const verifyProfile = async (profileId) => {
+    if (!window.confirm('¿Verificar a este artista? Sus publicaciones se aprobarán automáticamente.')) return;
+    const { error } = await supabase.from('profiles').update({ curated: true }).eq('id', profileId);
+    if (error) { console.error(error); alert('Error: ' + error.message); return; }
+    loadAdminData();
+    loadArtists();
+  };
+
+  const renderModPost = (post) => {
+    const imgs = getPostImages(post);
+    return (
+      <div className="space-y-2 min-w-0">
+        <div className="flex items-center gap-2">
+          {renderAvatar(post.profiles?.avatar_url, post.profiles?.name, 'w-8 h-8', 'text-sm')}
+          <div>
+            <p className="text-sm font-bold text-[#f3e5ab]">{post.profiles?.name || 'Artista'}</p>
+            <p className="text-xs text-gray-400">@{post.profiles?.username || ''} · {new Date(post.created_at).toLocaleDateString()}</p>
+          </div>
+        </div>
+        {post.works?.title && <p className="font-bold text-white">{post.works.title}</p>}
+        {post.content && <p className="text-sm text-gray-300 leading-relaxed">{post.content}</p>}
+        {imgs.length > 0 && (
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {imgs.map((u, i) => (
+              isVideo(u)
+                ? <video key={i} src={u} controls className="h-44 rounded-lg shrink-0" />
+                : <img key={i} src={u} alt="" onClick={() => openLightbox(imgs, i)} className="h-44 rounded-lg shrink-0 cursor-zoom-in object-contain bg-black" />
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // ---------------- Reglas de la red ----------------
+
+  const mustAcceptRules = !!currentUser && !currentUser.accepted_rules_at;
+
+  const handleAcceptRules = async () => {
+    if (!currentUser || !rulesChecked) return;
+    setAcceptingRules(true);
+    const acceptedAt = new Date().toISOString();
+    const { error } = await supabase.from('profiles').update({ accepted_rules_at: acceptedAt }).eq('id', currentUser.id);
+    setAcceptingRules(false);
+    if (error) { console.error(error); alert('No se pudo guardar la aceptación: ' + error.message); return; }
+    setCurrentUser(prev => ({ ...prev, accepted_rules_at: acceptedAt }));
+    setRulesChecked(false);
   };
 
   // ---------------- Foto de perfil ----------------
@@ -387,7 +554,7 @@ function App() {
         alert(`El archivo ${file.name} no es una imagen o video válido.`);
         return false;
       }
-      const maxSize = file.type.startsWith('video/') ? 50 * 1024 * 1024 : 10 * 1024 * 1024;
+      const maxSize = file.type.startsWith('video/') ? Infinity : 10 * 1024 * 1024;
       if (file.size > maxSize) {
         alert(`El archivo ${file.name} supera el tamaño permitido.`);
         return false;
@@ -559,7 +726,6 @@ function App() {
       alert('Solo imágenes o videos cortos.');
       return;
     }
-    if (file.size > 20 * 1024 * 1024) { alert('Máximo 20 MB.'); return; }
     setStoryFile(file);
     setStoryPreview(URL.createObjectURL(file));
   };
@@ -600,7 +766,7 @@ function App() {
       alert('¡Publicado en el taller! Se eliminará automáticamente en 24 horas.');
     } catch (err) {
       console.error(err);
-      alert('Error al publicar: ' + (err.message || 'Revisá la conexión.'));
+      alert('Error al publicar: ' + friendlyUploadError(err));
     } finally {
       setUploadingStory(false);
     }
@@ -688,10 +854,14 @@ function App() {
       clearAllMedia();
       loadPosts();
       loadMyWorks(currentUser.id);
-      alert('¡Publicación realizada con éxito!');
+      if (currentUser.curated || currentUser.is_admin) {
+        alert('¡Publicación realizada con éxito!');
+      } else {
+        alert('¡Publicación enviada! Queda en revisión y se verá en el feed cuando sea aprobada. Podés seguirla en tu perfil.');
+      }
     } catch (err) {
       console.error(err);
-      alert('Error al publicar: ' + err.message);
+      alert('Error al publicar: ' + friendlyUploadError(err));
     } finally {
       setUploadingMedia(false);
     }
@@ -726,6 +896,14 @@ function App() {
           <div className="mt-4 flex justify-center items-center gap-4">
             <button onClick={() => setActiveTab('home')} className={`px-4 py-1.5 rounded-full text-xs font-bold transition border ${activeTab === 'home' ? 'bg-[#f3e5ab] text-black border-[#f3e5ab]' : 'bg-black/50 text-[#f3e5ab] border-[#f3e5ab]/40 hover:bg-[#f3e5ab]/20'}`}>
               🎨 Explorar Feed
+            </button>
+            {currentUser?.is_admin && (
+              <button onClick={() => setActiveTab('admin')} className={`px-4 py-1.5 rounded-full text-xs font-bold transition border ${activeTab === 'admin' ? 'bg-[#f3e5ab] text-black border-[#f3e5ab]' : 'bg-black/50 text-[#f3e5ab] border-[#f3e5ab]/40 hover:bg-[#f3e5ab]/20'}`}>
+                🛡️ Moderación{adminPending.length + adminReports.length > 0 ? ` (${adminPending.length + adminReports.length})` : ''}
+              </button>
+            )}
+            <button onClick={() => setShowRules(true)} className="px-4 py-1.5 rounded-full text-xs font-bold transition border bg-black/50 text-[#f3e5ab] border-[#f3e5ab]/40 hover:bg-[#f3e5ab]/20">
+              📜 Reglas
             </button>
             {currentUser && (
               <button onClick={() => setActiveTab('profile')} className={`px-4 py-1.5 rounded-full text-xs font-bold transition border ${activeTab === 'profile' ? 'bg-[#f3e5ab] text-black border-[#f3e5ab]' : 'bg-black/50 text-[#f3e5ab] border-[#f3e5ab]/40 hover:bg-[#f3e5ab]/20'}`}>
@@ -895,6 +1073,91 @@ function App() {
           </div>
         )}
 
+        {reportingPost && (
+          <div className="fixed inset-0 z-[115] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-[#111] border border-[#f3e5ab]/50 rounded-2xl p-6 w-full max-w-md shadow-2xl">
+              <div className="flex justify-between items-center mb-3">
+                <h3 className="text-[#f3e5ab] font-bold text-lg">🚩 Denunciar publicación</h3>
+                <button onClick={() => setReportingPost(null)}><X size={22} className="text-gray-400 hover:text-white" /></button>
+              </div>
+              <p className="text-xs text-gray-400 mb-3">¿Qué regla no cumple? Un administrador la va a revisar.</p>
+              <div className="space-y-2">
+                {REPORT_REASONS.map((r) => (
+                  <label key={r} className="flex items-center gap-3 cursor-pointer">
+                    <input type="radio" checked={reportReason === r} onChange={() => setReportReason(r)} className="accent-[#f3e5ab] w-4 h-4" />
+                    <span className="text-sm text-gray-200">{r}</span>
+                  </label>
+                ))}
+              </div>
+              <textarea
+                rows="3"
+                value={reportDetail}
+                onChange={(e) => setReportDetail(e.target.value)}
+                placeholder="Detalles (opcional)"
+                className="mt-4 w-full bg-black/70 border border-white/20 rounded-lg p-2.5 text-white text-sm focus:outline-none focus:border-[#f3e5ab] resize-y"
+              />
+              <button
+                onClick={submitReport}
+                disabled={sendingReport}
+                className="mt-4 w-full bg-[#f3e5ab] text-black font-bold py-3 rounded-xl hover:bg-white transition text-sm disabled:opacity-60"
+              >
+                {sendingReport ? 'Enviando...' : 'Enviar denuncia'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {(mustAcceptRules || showRules) && (
+          <div className="fixed inset-0 z-[120] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-[#111] border border-[#f3e5ab]/50 rounded-2xl p-6 w-full max-w-xl shadow-2xl max-h-[92vh] flex flex-col">
+              <div className="flex justify-between items-start mb-3">
+                <div>
+                  <h3 className="text-[#f3e5ab] font-bold text-xl">📜 Reglas de la Red Da Vinci</h3>
+                  <p className="text-xs text-gray-400 mt-1">Un espacio para compartir tu obra y descubrir la de otros artistas. Para cuidarlo entre todos:</p>
+                </div>
+                {!mustAcceptRules && (
+                  <button onClick={() => setShowRules(false)}><X size={22} className="text-gray-400 hover:text-white" /></button>
+                )}
+              </div>
+
+              <ol className="overflow-y-auto space-y-3 pr-2 my-3 text-sm">
+                {RULES.map((r, i) => (
+                  <li key={i} className="text-gray-300 leading-relaxed">
+                    <span className="font-bold text-[#f3e5ab]">{i + 1}. {r.t}</span> {r.d}
+                  </li>
+                ))}
+              </ol>
+
+              <p className="text-xs text-amber-300/90 border-t border-white/10 pt-3">
+                Las publicaciones que no cumplan estas reglas serán bloqueadas o eliminadas. Las infracciones repetidas pueden llevar a la suspensión de la cuenta.
+              </p>
+
+              {mustAcceptRules ? (
+                <div className="mt-4 space-y-3">
+                  <label className="flex items-start gap-3 cursor-pointer select-none">
+                    <input type="checkbox" checked={rulesChecked} onChange={(e) => setRulesChecked(e.target.checked)} className="accent-[#f3e5ab] w-4 h-4 mt-0.5" />
+                    <span className="text-sm text-gray-200">Leí y acepto las reglas de la Red Da Vinci.</span>
+                  </label>
+                  <button
+                    onClick={handleAcceptRules}
+                    disabled={!rulesChecked || acceptingRules}
+                    className="w-full bg-[#f3e5ab] text-black font-bold py-3 rounded-xl disabled:opacity-40 hover:bg-white transition text-sm"
+                  >
+                    {acceptingRules ? 'Guardando...' : 'Aceptar y continuar'}
+                  </button>
+                  <button onClick={handleLogout} className="w-full text-xs text-gray-400 hover:text-white underline">
+                    No acepto, cerrar sesión
+                  </button>
+                </div>
+              ) : (
+                <button onClick={() => setShowRules(false)} className="mt-4 w-full bg-[#f3e5ab] text-black font-bold py-3 rounded-xl hover:bg-white transition text-sm">
+                  Entendido
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         {lightbox && (
           <div className="fixed inset-0 z-[110] bg-black/95 flex items-center justify-center p-2" onClick={() => setLightbox(null)}>
             <button onClick={() => setLightbox(null)} className="absolute top-4 right-4 text-white bg-black/60 border border-white/20 rounded-full p-2 hover:bg-white hover:text-black transition z-20">
@@ -931,7 +1194,78 @@ function App() {
           </div>
         )}
 
-        {activeTab === 'profile' && currentUser ? (
+        {activeTab === 'admin' && currentUser?.is_admin ? (
+          <main className="w-full max-w-5xl mx-auto bg-black/80 backdrop-blur-xl p-6 md:p-10 rounded-3xl border border-[#f3e5ab]/40 shadow-2xl space-y-10">
+            <h2 className="text-2xl font-bold text-[#f3e5ab]">🛡️ Panel de moderación</h2>
+
+            <section className="space-y-4">
+              <h3 className="text-sm uppercase tracking-widest text-[#f3e5ab] font-bold">Pendientes de aprobación ({adminPending.length})</h3>
+              {adminPending.length === 0 ? (
+                <p className="text-sm text-gray-400 bg-black/50 rounded-2xl border border-white/10 p-6 text-center">No hay publicaciones esperando revisión.</p>
+              ) : adminPending.map((post) => (
+                <div key={post.id} className="bg-black/70 p-5 rounded-2xl border border-[#f3e5ab]/30 space-y-4">
+                  {renderModPost(post)}
+                  <div className="flex gap-2">
+                    <button onClick={() => setPostStatus(post.id, 'approved')} className="flex-1 bg-green-950/60 border border-green-500/50 text-green-300 font-bold py-2 rounded-lg text-xs hover:bg-green-600 hover:text-white transition">Aprobar</button>
+                    <button onClick={() => setPostStatus(post.id, 'rejected')} className="flex-1 bg-red-950/40 border border-red-500/40 text-red-300 font-bold py-2 rounded-lg text-xs hover:bg-red-600 hover:text-white transition">Rechazar</button>
+                  </div>
+                </div>
+              ))}
+            </section>
+
+            <section className="space-y-4">
+              <h3 className="text-sm uppercase tracking-widest text-[#f3e5ab] font-bold">Denuncias ({adminReports.length})</h3>
+              {adminReports.length === 0 ? (
+                <p className="text-sm text-gray-400 bg-black/50 rounded-2xl border border-white/10 p-6 text-center">No hay denuncias.</p>
+              ) : adminReports.map(({ post, reports }) => (
+                <div key={post.id} className="bg-black/70 p-5 rounded-2xl border border-red-500/30 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-red-300">{reports.length} denuncia{reports.length > 1 ? 's' : ''}</span>
+                    <span className="text-xs text-gray-400">Estado: {post.status === 'approved' ? 'visible' : post.status === 'pending' ? 'en revisión' : 'bloqueada'}</span>
+                  </div>
+                  {renderModPost(post)}
+                  <ul className="text-xs text-gray-300 space-y-1 border-t border-white/10 pt-3">
+                    {reports.map(r => (
+                      <li key={r.id}>
+                        <span className="font-bold text-[#f3e5ab]">{r.profiles?.name || 'Usuario'}:</span> {r.reason}{r.detail ? ` — ${r.detail}` : ''}
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="flex flex-wrap gap-2">
+                    {post.status !== 'rejected' ? (
+                      <button onClick={() => setPostStatus(post.id, 'rejected')} className="flex-1 bg-red-950/40 border border-red-500/40 text-red-300 font-bold py-2 rounded-lg text-xs hover:bg-red-600 hover:text-white transition">Bloquear publicación</button>
+                    ) : (
+                      <button onClick={() => setPostStatus(post.id, 'approved')} className="flex-1 bg-green-950/60 border border-green-500/50 text-green-300 font-bold py-2 rounded-lg text-xs hover:bg-green-600 hover:text-white transition">Restaurar</button>
+                    )}
+                    <button onClick={() => dismissReports(post.id)} className="flex-1 bg-black/60 border border-white/20 text-gray-300 font-bold py-2 rounded-lg text-xs hover:bg-white hover:text-black transition">Descartar denuncias</button>
+                  </div>
+                </div>
+              ))}
+            </section>
+
+            <section className="space-y-4">
+              <h3 className="text-sm uppercase tracking-widest text-[#f3e5ab] font-bold">Perfiles sin verificar ({adminProfiles.length})</h3>
+              {adminProfiles.length === 0 ? (
+                <p className="text-sm text-gray-400 bg-black/50 rounded-2xl border border-white/10 p-6 text-center">Todos los perfiles están verificados.</p>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {adminProfiles.map((pr) => (
+                    <div key={pr.id} className="bg-black/70 p-4 rounded-2xl border border-white/15 flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        {renderAvatar(pr.avatar_url, pr.name, 'w-10 h-10', 'text-base')}
+                        <div className="min-w-0">
+                          <p className="text-sm font-bold text-[#f3e5ab] truncate">{pr.name}</p>
+                          <p className="text-xs text-gray-400 truncate">@{pr.username}</p>
+                        </div>
+                      </div>
+                      <button onClick={() => verifyProfile(pr.id)} className="shrink-0 bg-[#f3e5ab]/15 border border-[#f3e5ab]/50 text-[#f3e5ab] px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-[#f3e5ab] hover:text-black transition">Verificar</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          </main>
+        ) : activeTab === 'profile' && currentUser ? (
           <main className="w-full max-w-6xl mx-auto bg-black/80 backdrop-blur-xl p-6 md:p-10 rounded-3xl border border-[#f3e5ab]/40 shadow-2xl space-y-8">
             
             <div className="flex flex-col md:flex-row items-center gap-6 border-b border-white/20 pb-8">
@@ -1089,6 +1423,12 @@ function App() {
                   )}
                 </div>
 
+                <p className="text-xs text-gray-400 text-center">
+                  Al publicar respetás las{' '}
+                  <button type="button" onClick={() => setShowRules(true)} className="text-[#f3e5ab] underline font-bold">reglas de la Red Da Vinci</button>.
+                  Lo que no las cumpla será bloqueado.
+                </p>
+
                 <button type="submit" disabled={uploadingMedia}
                   className="w-full bg-[#f3e5ab] text-black font-bold py-4 rounded-2xl text-base hover:bg-white transition shadow-xl disabled:opacity-60 tracking-wider uppercase">
                   {uploadingMedia ? 'Subiendo archivos a la red...' : 'Publicar Obra en la Red Da Vinci'}
@@ -1186,6 +1526,13 @@ function App() {
                               {work?.is_tokenized ? (work.token_type === 'unique' ? `NFT Único · $${work.price} USDT` : `Tokens fraccionados · $${work.price} USDT`) : 'Solo exhibición'}
                             </p>
                           </div>
+                        )}
+
+                        {post.status === 'pending' && (
+                          <p className="text-xs text-amber-300 bg-amber-950/40 border border-amber-500/30 rounded-lg px-3 py-2">⏳ En revisión: todavía no se ve en el feed. Se publicará cuando sea aprobada.</p>
+                        )}
+                        {post.status === 'rejected' && (
+                          <p className="text-xs text-red-300 bg-red-950/40 border border-red-500/30 rounded-lg px-3 py-2">⛔ Bloqueada por no cumplir las reglas de la Red Da Vinci.</p>
                         )}
 
                         <div className="flex items-center justify-between pt-2 border-t border-white/10">
@@ -1454,6 +1801,15 @@ function App() {
                           <MessageCircle size={18} />
                           {(post.comments || []).length}
                         </button>
+                        {currentUser && post.author_id !== currentUser.id && (
+                          <button
+                            onClick={() => openReport(post)}
+                            className="ml-auto flex items-center gap-1.5 text-xs font-bold text-gray-500 hover:text-red-400 transition"
+                            title="Denunciar publicación"
+                          >
+                            <Flag size={15} /> Denunciar
+                          </button>
+                        )}
                       </div>
 
                       {openComments[post.id] && (

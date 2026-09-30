@@ -40,10 +40,15 @@ function App() {
   const [editorIndex, setEditorIndex] = useState(null);
   const [editorRotation, setEditorRotation] = useState(0);
   const [editorRatio, setEditorRatio] = useState('original');
+  const [editorZoom, setEditorZoom] = useState(1);
+  const [editorOffset, setEditorOffset] = useState({ x: 0, y: 0 });
+  const [editorNatural, setEditorNatural] = useState({ w: 0, h: 0 });
+  const [editorRotatedSrc, setEditorRotatedSrc] = useState(null);
   const [editorBrightness, setEditorBrightness] = useState(100);
   const [editorContrast, setEditorContrast] = useState(100);
   const [editorSaturation, setEditorSaturation] = useState(100);
   const [savingEdit, setSavingEdit] = useState(false);
+  const editorDragRef = useRef(null);
 
   const [lightbox, setLightbox] = useState(null);
   const [carouselIndexByPost, setCarouselIndexByPost] = useState({});
@@ -231,60 +236,148 @@ function App() {
     setMediaPreviews([]);
   };
 
+  const regenerateRotated = (url, rotationDeg) => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const rad = (rotationDeg * Math.PI) / 180;
+        const swap = rotationDeg % 180 !== 0;
+        const w = img.naturalWidth, h = img.naturalHeight;
+        const canvas = document.createElement('canvas');
+        canvas.width = swap ? h : w;
+        canvas.height = swap ? w : h;
+        const ctx = canvas.getContext('2d');
+        ctx.translate(canvas.width / 2, canvas.height / 2);
+        ctx.rotate(rad);
+        ctx.drawImage(img, -w / 2, -h / 2);
+        resolve({ dataUrl: canvas.toDataURL('image/jpeg', 0.95), w: canvas.width, h: canvas.height });
+      };
+      img.src = url;
+    });
+  };
+
+  const getViewport = (ratio) => {
+    if (ratio === 'square') return { w: 320, h: 320 };
+    if (ratio === 'portrait') return { w: 320, h: 400 };
+    return null;
+  };
+
+  const getBaseScale = (natural, viewport) => {
+    if (!viewport || !natural.w || !natural.h) return 1;
+    return Math.max(viewport.w / natural.w, viewport.h / natural.h);
+  };
+
   const openEditor = (idx) => {
     setEditorIndex(idx);
     setEditorRotation(0);
     setEditorRatio('original');
+    setEditorZoom(1);
+    setEditorOffset({ x: 0, y: 0 });
     setEditorBrightness(100);
     setEditorContrast(100);
     setEditorSaturation(100);
+    setEditorRotatedSrc(null);
+    setEditorNatural({ w: 0, h: 0 });
+    regenerateRotated(mediaPreviews[idx].url, 0).then(({ dataUrl, w, h }) => {
+      setEditorRotatedSrc(dataUrl);
+      setEditorNatural({ w, h });
+    });
   };
 
   const closeEditor = () => setEditorIndex(null);
 
-  const applyEditAndSave = () => {
+  const rotateEditor = async (delta) => {
     const item = mediaPreviews[editorIndex];
-    if (!item || item.type === 'video') { closeEditor(); return; }
+    if (!item) return;
+    const newRot = (editorRotation + delta + 360) % 360;
+    const { dataUrl, w, h } = await regenerateRotated(item.url, newRot);
+    setEditorRotation(newRot);
+    setEditorRotatedSrc(dataUrl);
+    setEditorNatural({ w, h });
+    setEditorZoom(1);
+    const vp = getViewport(editorRatio);
+    if (vp) {
+      const scale = getBaseScale({ w, h }, vp);
+      setEditorOffset({ x: (vp.w - w * scale) / 2, y: (vp.h - h * scale) / 2 });
+    } else {
+      setEditorOffset({ x: 0, y: 0 });
+    }
+  };
+
+  const selectRatio = (r) => {
+    setEditorRatio(r);
+    setEditorZoom(1);
+    const vp = getViewport(r);
+    if (vp && editorNatural.w) {
+      const scale = getBaseScale(editorNatural, vp);
+      setEditorOffset({ x: (vp.w - editorNatural.w * scale) / 2, y: (vp.h - editorNatural.h * scale) / 2 });
+    } else {
+      setEditorOffset({ x: 0, y: 0 });
+    }
+  };
+
+  const onZoomChange = (val) => {
+    setEditorZoom(val);
+    const vp = getViewport(editorRatio);
+    if (!vp) return;
+    const scale = getBaseScale(editorNatural, vp) * val;
+    const dispW = editorNatural.w * scale;
+    const dispH = editorNatural.h * scale;
+    setEditorOffset(prev => ({
+      x: Math.min(0, Math.max(vp.w - dispW, prev.x)),
+      y: Math.min(0, Math.max(vp.h - dispH, prev.y))
+    }));
+  };
+
+  const handlePointerDown = (e) => {
+    if (!getViewport(editorRatio)) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    editorDragRef.current = { startX: e.clientX, startY: e.clientY, offX: editorOffset.x, offY: editorOffset.y };
+  };
+
+  const handlePointerMove = (e) => {
+    if (!editorDragRef.current) return;
+    const vp = getViewport(editorRatio);
+    if (!vp) return;
+    const scale = getBaseScale(editorNatural, vp) * editorZoom;
+    const dispW = editorNatural.w * scale;
+    const dispH = editorNatural.h * scale;
+    const dx = e.clientX - editorDragRef.current.startX;
+    const dy = e.clientY - editorDragRef.current.startY;
+    let nx = editorDragRef.current.offX + dx;
+    let ny = editorDragRef.current.offY + dy;
+    nx = Math.min(0, Math.max(vp.w - dispW, nx));
+    ny = Math.min(0, Math.max(vp.h - dispH, ny));
+    setEditorOffset({ x: nx, y: ny });
+  };
+
+  const handlePointerUp = () => {
+    editorDragRef.current = null;
+  };
+
+  const applyEditAndSave = () => {
+    if (editorIndex === null || !editorRotatedSrc) return;
     setSavingEdit(true);
     const img = new Image();
     img.onload = () => {
-      const rotRad = (editorRotation * Math.PI) / 180;
-      const swap = editorRotation % 180 !== 0;
-      const naturalW = img.naturalWidth;
-      const naturalH = img.naturalHeight;
-
-      const rotCanvas = document.createElement('canvas');
-      rotCanvas.width = swap ? naturalH : naturalW;
-      rotCanvas.height = swap ? naturalW : naturalH;
-      const rctx = rotCanvas.getContext('2d');
-      rctx.translate(rotCanvas.width / 2, rotCanvas.height / 2);
-      rctx.rotate(rotRad);
-      rctx.drawImage(img, -naturalW / 2, -naturalH / 2);
-
-      let cw = rotCanvas.width, ch = rotCanvas.height, cx = 0, cy = 0;
-      if (editorRatio === 'square') {
-        const side = Math.min(cw, ch);
-        cx = (cw - side) / 2; cy = (ch - side) / 2; cw = side; ch = side;
-      } else if (editorRatio === 'portrait') {
-        const targetRatio = 4 / 5;
-        if (cw / ch > targetRatio) {
-          const newW = ch * targetRatio;
-          cx = (cw - newW) / 2; cw = newW;
-        } else {
-          const newH = cw / targetRatio;
-          cy = (ch - newH) / 2; ch = newH;
-        }
+      const vp = getViewport(editorRatio);
+      let srcX = 0, srcY = 0, srcW = editorNatural.w, srcH = editorNatural.h;
+      if (vp) {
+        const scale = getBaseScale(editorNatural, vp) * editorZoom;
+        srcX = -editorOffset.x / scale;
+        srcY = -editorOffset.y / scale;
+        srcW = vp.w / scale;
+        srcH = vp.h / scale;
       }
-
-      const finalCanvas = document.createElement('canvas');
-      finalCanvas.width = cw;
-      finalCanvas.height = ch;
-      const fctx = finalCanvas.getContext('2d');
-      fctx.filter = `brightness(${editorBrightness}%) contrast(${editorContrast}%) saturate(${editorSaturation}%)`;
-      fctx.drawImage(rotCanvas, cx, cy, cw, ch, 0, 0, cw, ch);
-
-      finalCanvas.toBlob((blob) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(srcW));
+      canvas.height = Math.max(1, Math.round(srcH));
+      const ctx = canvas.getContext('2d');
+      ctx.filter = `brightness(${editorBrightness}%) contrast(${editorContrast}%) saturate(${editorSaturation}%)`;
+      ctx.drawImage(img, srcX, srcY, srcW, srcH, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob((blob) => {
         if (!blob) { setSavingEdit(false); return; }
+        const item = mediaPreviews[editorIndex];
         const newFile = new File([blob], item.file.name.replace(/\.[^/.]+$/, '') + '.jpg', { type: 'image/jpeg' });
         const newUrl = URL.createObjectURL(blob);
         URL.revokeObjectURL(item.url);
@@ -294,7 +387,7 @@ function App() {
         setEditorIndex(null);
       }, 'image/jpeg', 0.92);
     };
-    img.src = item.url;
+    img.src = editorRotatedSrc;
   };
 
   const handleStoryFileChange = (e) => {
@@ -545,36 +638,77 @@ function App() {
                 <button onClick={closeEditor}><X size={20} className="text-gray-400 hover:text-white" /></button>
               </div>
 
-              <div className="rounded-xl overflow-hidden bg-black flex items-center justify-center border border-white/10" style={{ maxHeight: '45vh' }}>
-                <img
-                  src={mediaPreviews[editorIndex].url}
-                  alt="Editando"
-                  className="max-h-[45vh] w-auto"
-                  style={{
-                    transform: `rotate(${editorRotation}deg)`,
-                    filter: `brightness(${editorBrightness}%) contrast(${editorContrast}%) saturate(${editorSaturation}%)`
-                  }}
-                />
-              </div>
+              {(() => {
+                const vp = getViewport(editorRatio);
+                if (!vp) {
+                  return (
+                    <div className="rounded-xl overflow-hidden bg-black flex items-center justify-center border border-white/10" style={{ maxHeight: '45vh' }}>
+                      {editorRotatedSrc && (
+                        <img
+                          src={editorRotatedSrc}
+                          alt="Editando"
+                          className="max-h-[45vh] w-auto"
+                          style={{ filter: `brightness(${editorBrightness}%) contrast(${editorContrast}%) saturate(${editorSaturation}%)` }}
+                        />
+                      )}
+                    </div>
+                  );
+                }
+                const scale = getBaseScale(editorNatural, vp) * editorZoom;
+                return (
+                  <div
+                    className="relative mx-auto rounded-xl overflow-hidden bg-black border-2 border-[#f3e5ab]/60 touch-none cursor-move"
+                    style={{ width: vp.w, height: vp.h, maxWidth: '100%' }}
+                    onPointerDown={handlePointerDown}
+                    onPointerMove={handlePointerMove}
+                    onPointerUp={handlePointerUp}
+                    onPointerLeave={handlePointerUp}
+                  >
+                    {editorRotatedSrc && (
+                      <img
+                        src={editorRotatedSrc}
+                        alt="Recortando"
+                        draggable={false}
+                        style={{
+                          position: 'absolute',
+                          left: editorOffset.x,
+                          top: editorOffset.y,
+                          width: editorNatural.w * scale,
+                          height: editorNatural.h * scale,
+                          filter: `brightness(${editorBrightness}%) contrast(${editorContrast}%) saturate(${editorSaturation}%)`,
+                          userSelect: 'none'
+                        }}
+                      />
+                    )}
+                  </div>
+                );
+              })()}
 
               <div className="flex items-center justify-center flex-wrap gap-2 mt-4">
-                <button type="button" onClick={() => setEditorRotation(r => (r - 90 + 360) % 360)} className="bg-black/60 border border-white/20 p-2.5 rounded-full text-white hover:bg-[#f3e5ab] hover:text-black transition">
+                <button type="button" onClick={() => rotateEditor(-90)} className="bg-black/60 border border-white/20 p-2.5 rounded-full text-white hover:bg-[#f3e5ab] hover:text-black transition">
                   <RotateCcw size={18} />
                 </button>
-                <button type="button" onClick={() => setEditorRotation(r => (r + 90) % 360)} className="bg-black/60 border border-white/20 p-2.5 rounded-full text-white hover:bg-[#f3e5ab] hover:text-black transition">
+                <button type="button" onClick={() => rotateEditor(90)} className="bg-black/60 border border-white/20 p-2.5 rounded-full text-white hover:bg-[#f3e5ab] hover:text-black transition">
                   <RotateCw size={18} />
                 </button>
                 {['original', 'square', 'portrait'].map((r) => (
                   <button
                     key={r}
                     type="button"
-                    onClick={() => setEditorRatio(r)}
+                    onClick={() => selectRatio(r)}
                     className={`px-3 py-2 rounded-full text-xs font-bold border transition ${editorRatio === r ? 'bg-[#f3e5ab] text-black border-[#f3e5ab]' : 'bg-black/60 text-gray-300 border-white/20 hover:border-[#f3e5ab]'}`}
                   >
-                    {r === 'original' ? 'Original' : r === 'square' ? '1:1' : '4:5'}
+                    {r === 'original' ? 'Sin recorte' : r === 'square' ? 'Recortar 1:1' : 'Recortar 4:5'}
                   </button>
                 ))}
               </div>
+
+              {getViewport(editorRatio) && (
+                <div className="mt-3">
+                  <label className="text-xs text-gray-300 block mb-1">Zoom (arrastrá la foto para moverla)</label>
+                  <input type="range" min="1" max="3" step="0.01" value={editorZoom} onChange={(e) => onZoomChange(Number(e.target.value))} className="w-full accent-[#f3e5ab]" />
+                </div>
+              )}
 
               <div className="mt-5 space-y-3">
                 <div>
@@ -594,7 +728,7 @@ function App() {
               <button
                 type="button"
                 onClick={applyEditAndSave}
-                disabled={savingEdit}
+                disabled={savingEdit || !editorRotatedSrc}
                 className="mt-6 w-full bg-[#f3e5ab] text-black font-bold py-3 rounded-xl disabled:opacity-50 hover:bg-white transition text-sm flex items-center justify-center gap-2"
               >
                 <Check size={16} /> {savingEdit ? 'Guardando...' : 'Aplicar cambios'}
@@ -866,10 +1000,36 @@ function App() {
                     <form onSubmit={async (e) => {
                       e.preventDefault();
                       const { error } = await supabase.auth.signInWithPassword({ email: loginForm.email, password: loginForm.password });
-                      if (error) alert('Error al iniciar sesión: ' + error.message);
+                      if (error) { alert('Error al iniciar sesión: ' + error.message); return; }
+                      if (rememberMe) {
+                        localStorage.setItem('reddavinci_remembered_email', loginForm.email);
+                      } else {
+                        localStorage.removeItem('reddavinci_remembered_email');
+                      }
                     }} className="space-y-3">
                       <input type="email" placeholder="Correo electrónico" value={loginForm.email} onChange={(e) => setLoginForm({...loginForm, email: e.target.value})} className="w-full bg-black/70 border border-white/20 rounded-xl p-3 text-xs text-white" required />
-                      <input type="password" placeholder="Contraseña" value={loginForm.password} onChange={(e) => setLoginForm({...loginForm, password: e.target.value})} className="w-full bg-black/70 border border-white/20 rounded-xl p-3 text-xs text-white" required />
+                      <div className="relative">
+                        <input
+                          type={showLoginPassword ? 'text' : 'password'}
+                          placeholder="Contraseña"
+                          value={loginForm.password}
+                          onChange={(e) => setLoginForm({...loginForm, password: e.target.value})}
+                          className="w-full bg-black/70 border border-white/20 rounded-xl p-3 pr-10 text-xs text-white"
+                          required
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowLoginPassword(v => !v)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#f3e5ab]"
+                          tabIndex={-1}
+                        >
+                          {showLoginPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
+                      </div>
+                      <label className="flex items-center gap-2 cursor-pointer select-none">
+                        <input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} className="accent-[#f3e5ab] w-3.5 h-3.5" />
+                        <span className="text-xs text-gray-300">Recordar mi cuenta</span>
+                      </label>
                       <button type="submit" className="w-full bg-[#f3e5ab] text-black font-bold py-3 rounded-xl text-xs hover:bg-white transition">Entrar</button>
                     </form>
                   </div>

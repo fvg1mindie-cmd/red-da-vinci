@@ -38,6 +38,8 @@ function App() {
   const [uploadingMedia, setUploadingMedia] = useState(false);
 
   const [myPosts, setMyPosts] = useState([]);
+  const [openLikes, setOpenLikes] = useState({});
+  const [likeProfiles, setLikeProfiles] = useState({});
   const [editingPostId, setEditingPostId] = useState(null);
   const [editContent, setEditContent] = useState('');
   const [editTitle, setEditTitle] = useState('');
@@ -155,8 +157,18 @@ function App() {
       .select('*, works(*), likes(user_id), comments(id, content, created_at, author_id, profiles(name, username))')
       .eq('author_id', userId)
       .order('created_at', { ascending: false });
-    if (!error) setMyPosts(data || []);
-    else console.error(error);
+    if (error) { console.error(error); return; }
+    setMyPosts(data || []);
+
+    // Nombres de quienes dieron me gusta (consulta aparte, no depende de relaciones entre tablas)
+    const ids = [...new Set((data || []).flatMap(p => (p.likes || []).map(l => l.user_id)))];
+    if (ids.length > 0) {
+      const { data: profs, error: profError } = await supabase.from('profiles').select('id, name, username').in('id', ids);
+      if (profError) { console.error(profError); return; }
+      const map = {};
+      (profs || []).forEach(pr => { map[pr.id] = pr; });
+      setLikeProfiles(map);
+    }
   };
 
   const loadArtists = async () => {
@@ -1121,10 +1133,14 @@ function App() {
 
                         <div className="flex items-center justify-between pt-2 border-t border-white/10">
                           <div className="flex items-center gap-5">
-                            <span className="flex items-center gap-2 text-sm font-bold text-gray-300" title="Me gusta">
+                            <button
+                              onClick={() => setOpenLikes(prev => ({ ...prev, [key]: !prev[key] }))}
+                              className="flex items-center gap-2 text-sm font-bold text-gray-300 hover:text-red-400 transition"
+                              title="Ver quién dio me gusta"
+                            >
                               <Heart size={18} className="text-red-400" fill={(post.likes || []).length > 0 ? 'currentColor' : 'none'} />
                               {(post.likes || []).length}
-                            </span>
+                            </button>
                             <button
                               onClick={() => toggleComments(key)}
                               className="flex items-center gap-2 text-sm font-bold text-gray-300 hover:text-[#f3e5ab] transition"
@@ -1151,6 +1167,25 @@ function App() {
                             </div>
                           )}
                         </div>
+
+                        {openLikes[key] && (
+                          <div className="pt-3 space-y-2 border-t border-white/10">
+                            {(post.likes || []).length === 0 ? (
+                              <p className="text-xs text-gray-500">Todavía nadie dio me gusta.</p>
+                            ) : (
+                              (post.likes || []).map((l) => {
+                                const pr = likeProfiles[l.user_id];
+                                return (
+                                  <div key={l.user_id} className="text-sm flex items-center gap-2">
+                                    <Heart size={14} className="text-red-400" fill="currentColor" />
+                                    <span className="font-bold text-[#f3e5ab]">{pr?.name || 'Usuario'}</span>
+                                    {pr?.username && <span className="text-xs text-gray-400">@{pr.username}</span>}
+                                  </div>
+                                );
+                              })
+                            )}
+                          </div>
+                        )}
 
                         {openComments[key] && (
                           <div className="pt-3 space-y-3 border-t border-white/10">

@@ -291,8 +291,8 @@ function App() {
 
   // ---------------- Editor de fotos: recorte manual con recuadro ----------------
 
-  const EDITOR_DISPLAY_MAX_W = 480;
-  const EDITOR_DISPLAY_MAX_H = 420;
+  const EDITOR_DISPLAY_MAX_W = 760;
+  const EDITOR_DISPLAY_MAX_H = 560;
   const MIN_CROP = 40;
 
   const computeDisplay = (natural) => {
@@ -644,7 +644,7 @@ function App() {
 
         {editorIndex !== null && mediaPreviews[editorIndex] && (
           <div className="fixed inset-0 z-[95] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-[#111] border border-[#f3e5ab]/50 rounded-2xl p-5 w-full max-w-4xl shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="bg-[#111] border border-[#f3e5ab]/50 rounded-2xl p-5 w-full max-w-6xl shadow-2xl max-h-[95vh] overflow-y-auto">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-[#f3e5ab] font-bold text-base">✏️ Editar foto</h3>
                 <button onClick={closeEditor}><X size={20} className="text-gray-400 hover:text-white" /></button>
@@ -653,7 +653,7 @@ function App() {
               <div className="flex flex-col md:flex-row gap-5">
 
                 {/* Foto + recuadro de recorte manual */}
-                <div className="flex-1 flex items-center justify-center bg-black rounded-xl border border-white/10 p-4" style={{ minHeight: 320 }}>
+                <div className="flex-1 flex items-center justify-center bg-black rounded-xl border border-white/10 p-4" style={{ minHeight: 400 }}>
                   {editorRotatedSrc && editorDisplay.w > 0 && (
                     <div
                       className="relative overflow-hidden rounded"
@@ -863,13 +863,13 @@ function App() {
                       <span className="text-xs text-[#f3e5ab] font-bold">Archivos seleccionados ({mediaPreviews.length}):</span>
                       <button type="button" onClick={clearAllMedia} className="text-xs text-red-400 hover:text-red-300 underline font-bold">Eliminar todos</button>
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 gap-4">
                       {mediaPreviews.map((item, idx) => (
                         <div key={idx} className="relative bg-black/80 p-3 rounded-2xl border border-[#f3e5ab]/30 shadow-lg group">
                           {item.type === 'video' ? (
-                            <video src={item.url} controls className="w-full h-72 object-cover rounded-xl" />
+                            <video src={item.url} controls className="w-full h-[32rem] object-cover rounded-xl" />
                           ) : (
-                            <img src={item.url} alt={`Preview ${idx}`} className="w-full h-72 object-contain rounded-xl bg-black/50" />
+                            <img src={item.url} alt={`Preview ${idx}`} className="w-full h-[32rem] object-contain rounded-xl bg-black/50" />
                           )}
                           <div className="absolute top-5 right-5 flex flex-col gap-2">
                             <button
@@ -1090,12 +1090,12 @@ function App() {
                         const idx = carouselIndexByPost[post.id] || 0;
                         const current = images[idx] || images[0];
                         return (
-                          <div className="relative rounded-2xl overflow-hidden bg-black border border-white/10 group min-h-[60vh] flex items-center">
+                          <div className="relative rounded-2xl overflow-hidden bg-black border border-white/10 group">
                             <div className="w-full cursor-zoom-in" onClick={() => openLightbox(images, idx)}>
                               {isVideo(current) ? (
-                                <video src={current} className="w-full max-h-[90vh] object-contain bg-black" controls onClick={(e) => e.stopPropagation()} />
+                                <video src={current} className="w-full max-h-[65vh] object-contain bg-black" controls onClick={(e) => e.stopPropagation()} />
                               ) : (
-                                <img src={current} alt="Obra" className="w-full max-h-[90vh] object-contain bg-black" />
+                                <img src={current} alt="Obra" className="w-full max-h-[65vh] object-contain bg-black" />
                               )}
                             </div>
                             {images.length > 1 && (

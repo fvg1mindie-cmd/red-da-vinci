@@ -134,35 +134,30 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const code = new URLSearchParams(window.location.search).get('codigo');
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('ref') || params.get('codigo');
     if (code) {
       setRegisterForm(prev => ({ ...prev, inviteCode: code.toUpperCase() }));
       setAuthMode('register');
     }
   }, []);
 
-  const resolveInviter = async (code, userId) => {
-    const clean = (code || '').trim().toUpperCase();
-    if (!clean) return null;
-    const { data } = await supabase.from('profiles').select('id').eq('invite_code', clean).maybeSingle();
-    return data && data.id !== userId ? data.id : null;
+  // La invitación se valida antes de crear la cuenta y se aplica al iniciar sesión (funciones resolve_invite y set_inviter de la base de datos)
+  const applyPendingInvite = async () => {
+    const code = localStorage.getItem('reddavinci_pending_invite');
+    if (!code) return;
+    const { error } = await supabase.rpc('set_inviter', { code });
+    if (error) console.error(error);
+    localStorage.removeItem('reddavinci_pending_invite');
   };
 
   const loadProfile = async (userId, authUser = null) => {
     const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
     if (!error && data) {
-      let profile = data;
-      const metaCode = (authUser?.user_metadata?.invite_code || '').trim();
-      if (!profile.invited_by && metaCode) {
-        const inviterId = await resolveInviter(metaCode, userId);
-        if (inviterId) {
-          const { error: upErr } = await supabase.from('profiles').update({ invited_by: inviterId }).eq('id', userId);
-          if (!upErr) profile = { ...profile, invited_by: inviterId };
-        }
-      }
-      setCurrentUser(profile);
-      setUserRole(profile.role || 'artist');
+      setCurrentUser(data);
+      setUserRole(data.role || 'artist');
       setAuthLoading(false);
+      applyPendingInvite();
       return;
     }
     if (authUser || session?.user) {
@@ -176,15 +171,11 @@ function App() {
         role: meta.role || 'artist',
         curated: false
       };
-      const newMetaCode = (meta.invite_code || '').trim();
-      if (newMetaCode) {
-        const inviterId = await resolveInviter(newMetaCode, userId);
-        if (inviterId) newProfile.invited_by = inviterId;
-      }
       const { data: created, error: createError } = await supabase.from('profiles').insert(newProfile).select().single();
       if (!createError && created) {
         setCurrentUser(created);
         setUserRole(created.role);
+        applyPendingInvite();
       } else {
         setCurrentUser(newProfile);
         setUserRole(newProfile.role);
@@ -479,6 +470,13 @@ function App() {
     if (registerForm.password.length < 6) { alert('La contraseña debe tener al menos 6 caracteres.'); return; }
     const username = registerForm.username.trim().toLowerCase().replace(/[^a-z0-9_.]/g, '');
     if (!username) { alert('Elegí un nombre de usuario (letras, números, punto o guion bajo).'); return; }
+    const code = (registerForm.inviteCode || '').trim().toUpperCase();
+    if (code) {
+      const { data: inviterId, error: inviteError } = await supabase.rpc('resolve_invite', { code });
+      if (inviteError) { console.error(inviteError); alert('No se pudo verificar el código de invitación. Probá de nuevo.'); return; }
+      if (!inviterId) { alert('Ese código de invitación no existe. Revisalo o dejalo vacío.'); return; }
+      localStorage.setItem('reddavinci_pending_invite', code);
+    }
     setRegistering(true);
     const { data, error } = await supabase.auth.signUp({
       email: registerForm.email.trim(),
@@ -487,13 +485,12 @@ function App() {
         data: {
           name: registerForm.name.trim(),
           username,
-          role: 'artist',
-          invite_code: (registerForm.inviteCode || '').trim().toUpperCase()
+          role: 'artist'
         }
       }
     });
     setRegistering(false);
-    if (error) { alert('No se pudo crear la cuenta: ' + error.message); return; }
+    if (error) { localStorage.removeItem('reddavinci_pending_invite'); alert('No se pudo crear la cuenta: ' + error.message); return; }
     if (!data.session) {
       alert('Te enviamos un mail para confirmar tu cuenta. Confirmalo e iniciá sesión.');
       setAuthMode('login');
@@ -501,7 +498,7 @@ function App() {
   };
 
   const copyInviteLink = (code) => {
-    const link = `${window.location.origin}/?codigo=${code}`;
+    const link = `${window.location.origin}/?ref=${code}`;
     if (navigator.clipboard?.writeText) {
       navigator.clipboard.writeText(link).then(() => alert('Enlace copiado. Pasáselo al artista que quieras invitar:\n' + link)).catch(() => alert('Tu enlace de invitación:\n' + link));
     } else {

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Eye, EyeOff, X, Plus, ChevronLeft, ChevronRight, RotateCw, RotateCcw, Check, Pencil, Heart, MessageCircle, Camera, Flag } from 'lucide-react';
 import { supabase } from './supabaseClient';
-import { LevelBadge, ProgressBlock, AdminLevels, LevelsPage, ReglamentoPage } from './RedExtras';
+import { LEVELS, REGLAMENTO } from './reglamentoData';
 
 const RULES = [
   { t: 'Publicá solo obra propia.', d: 'Si no la creaste vos, no la subas. Copiar o reclamar como tuyo el trabajo de otro artista está prohibido.' },
@@ -34,16 +34,13 @@ function App() {
   const [authLoading, setAuthLoading] = useState(true);
 
   const [registerForm, setRegisterForm] = useState({
-    email: '', password: '', confirmPassword: '', name: '', username: '', bio: '', roleRequested: 'artist'
+    email: '', password: '', confirmPassword: '', name: '', username: '', bio: '', roleRequested: 'artist', inviteCode: ''
   });
   const [loginForm, setLoginForm] = useState({ email: '', password: '' });
   const [rememberMe, setRememberMe] = useState(false);
   const [showRegPassword, setShowRegPassword] = useState(false);
   const [showRegConfirm, setShowRegConfirm] = useState(false);
   const [showLoginPassword, setShowLoginPassword] = useState(false);
-  const [authMode, setAuthMode] = useState('login');
-  const [registering, setRegistering] = useState(false);
-  const [inviteCode, setInviteCode] = useState(new URLSearchParams(window.location.search).get('ref') || '');
 
   const [artists, setArtists] = useState([]);
   const [posts, setPosts] = useState([]);
@@ -104,6 +101,10 @@ function App() {
   const [adminPending, setAdminPending] = useState([]);
   const [adminReports, setAdminReports] = useState([]);
   const [adminProfiles, setAdminProfiles] = useState([]);
+  const [adminAllProfiles, setAdminAllProfiles] = useState([]);
+  const [myInvitees, setMyInvitees] = useState([]);
+  const [authMode, setAuthMode] = useState('login');
+  const [registering, setRegistering] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -132,26 +133,36 @@ function App() {
     }
   }, []);
 
-  // Si alguien llega con un enlace de invitación (?ref=CODIGO), abrir directo el registro
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get('ref')) setAuthMode('register');
+    const code = new URLSearchParams(window.location.search).get('codigo');
+    if (code) {
+      setRegisterForm(prev => ({ ...prev, inviteCode: code.toUpperCase() }));
+      setAuthMode('register');
+    }
   }, []);
 
-  const applyPendingInvite = async () => {
-    const code = localStorage.getItem('reddavinci_pending_invite');
-    if (!code) return;
-    const { error } = await supabase.rpc('set_inviter', { code });
-    if (error) console.error(error);
-    localStorage.removeItem('reddavinci_pending_invite');
+  const resolveInviter = async (code, userId) => {
+    const clean = (code || '').trim().toUpperCase();
+    if (!clean) return null;
+    const { data } = await supabase.from('profiles').select('id').eq('invite_code', clean).maybeSingle();
+    return data && data.id !== userId ? data.id : null;
   };
 
   const loadProfile = async (userId, authUser = null) => {
     const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
     if (!error && data) {
-      setCurrentUser(data);
-      setUserRole(data.role || 'artist');
+      let profile = data;
+      const metaCode = (authUser?.user_metadata?.invite_code || '').trim();
+      if (!profile.invited_by && metaCode) {
+        const inviterId = await resolveInviter(metaCode, userId);
+        if (inviterId) {
+          const { error: upErr } = await supabase.from('profiles').update({ invited_by: inviterId }).eq('id', userId);
+          if (!upErr) profile = { ...profile, invited_by: inviterId };
+        }
+      }
+      setCurrentUser(profile);
+      setUserRole(profile.role || 'artist');
       setAuthLoading(false);
-      applyPendingInvite();
       return;
     }
     if (authUser || session?.user) {
@@ -165,11 +176,15 @@ function App() {
         role: meta.role || 'artist',
         curated: false
       };
+      const newMetaCode = (meta.invite_code || '').trim();
+      if (newMetaCode) {
+        const inviterId = await resolveInviter(newMetaCode, userId);
+        if (inviterId) newProfile.invited_by = inviterId;
+      }
       const { data: created, error: createError } = await supabase.from('profiles').insert(newProfile).select().single();
       if (!createError && created) {
         setCurrentUser(created);
         setUserRole(created.role);
-        applyPendingInvite();
       } else {
         setCurrentUser(newProfile);
         setUserRole(newProfile.role);
@@ -189,6 +204,7 @@ function App() {
       loadMyTokens(currentUser.id);
       loadMyWorks(currentUser.id);
       loadMyPosts(currentUser.id);
+      loadMyInvitees(currentUser.id);
     }
   }, [currentUser]);
 
@@ -205,6 +221,15 @@ function App() {
     if (!error) setPosts(data || []);
     else console.error(error);
     if (currentUser) loadMyPosts(currentUser.id);
+  };
+
+  const loadMyInvitees = async (userId) => {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, name, username, level')
+      .eq('invited_by', userId)
+      .order('created_at', { ascending: true });
+    if (error) console.error(error); else setMyInvitees(data || []);
   };
 
   const loadMyPosts = async (userId) => {
@@ -382,6 +407,13 @@ function App() {
       .order('created_at', { ascending: false })
       .limit(50);
     if (e3) console.error(e3); else setAdminProfiles(profs || []);
+
+    const { data: allp, error: e4 } = await supabase
+      .from('profiles')
+      .select('id, name, username, avatar_url, level, curated, invited_by, created_at')
+      .order('created_at', { ascending: true })
+      .limit(500);
+    if (e4) console.error(e4); else setAdminAllProfiles(allp || []);
   };
 
   const setPostStatus = async (postId, status) => {
@@ -399,9 +431,17 @@ function App() {
 
   const verifyProfile = async (profileId) => {
     if (!window.confirm('¿Verificar a este artista? Sus publicaciones se aprobarán automáticamente.')) return;
-    const { error } = await supabase.from('profiles').update({ curated: true }).eq('id', profileId);
+    const { error } = await supabase.from('profiles').update({ curated: true, level: 'discipulo' }).eq('id', profileId);
     if (error) { console.error(error); alert('Error: ' + error.message); return; }
     loadAdminData();
+    loadArtists();
+  };
+
+  const setProfileLevel = async (profileId, level) => {
+    const curated = level !== 'aprendiz';
+    const { error } = await supabase.from('profiles').update({ level, curated }).eq('id', profileId);
+    if (error) { console.error(error); alert('Error: ' + error.message); return; }
+    await loadAdminData();
     loadArtists();
   };
 
@@ -429,6 +469,93 @@ function App() {
         )}
       </div>
     );
+  };
+
+  // ---------------- Registro, invitaciones y páginas públicas ----------------
+
+  const handleRegister = async (e) => {
+    e.preventDefault();
+    if (registerForm.password !== registerForm.confirmPassword) { alert('Las contraseñas no coinciden.'); return; }
+    if (registerForm.password.length < 6) { alert('La contraseña debe tener al menos 6 caracteres.'); return; }
+    const username = registerForm.username.trim().toLowerCase().replace(/[^a-z0-9_.]/g, '');
+    if (!username) { alert('Elegí un nombre de usuario (letras, números, punto o guion bajo).'); return; }
+    setRegistering(true);
+    const { data, error } = await supabase.auth.signUp({
+      email: registerForm.email.trim(),
+      password: registerForm.password,
+      options: {
+        data: {
+          name: registerForm.name.trim(),
+          username,
+          role: 'artist',
+          invite_code: (registerForm.inviteCode || '').trim().toUpperCase()
+        }
+      }
+    });
+    setRegistering(false);
+    if (error) { alert('No se pudo crear la cuenta: ' + error.message); return; }
+    if (!data.session) {
+      alert('Te enviamos un mail para confirmar tu cuenta. Confirmalo e iniciá sesión.');
+      setAuthMode('login');
+    }
+  };
+
+  const copyInviteLink = (code) => {
+    const link = `${window.location.origin}/?codigo=${code}`;
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(link).then(() => alert('Enlace copiado. Pasáselo al artista que quieras invitar:\n' + link)).catch(() => alert('Tu enlace de invitación:\n' + link));
+    } else {
+      alert('Tu enlace de invitación:\n' + link);
+    }
+  };
+
+  const renderLevelBadge = (levelId) => {
+    const lv = LEVELS.find(l => l.id === levelId);
+    if (!lv) return null;
+    const top = lv.id === 'medici';
+    return (
+      <span className={`text-[10px] px-2 py-0.5 rounded-full border font-bold inline-flex items-center gap-1 ${top ? 'bg-[#f3e5ab] text-black border-[#f3e5ab]' : 'bg-black/50 text-[#f3e5ab] border-[#f3e5ab]/40'}`}>
+        {lv.icon} {lv.name}
+      </span>
+    );
+  };
+
+  const renderRich = (text) => String(text).split(/(\*\*.*?\*\*|\[\[.*?\]\])/g).filter(Boolean).map((part, i) => {
+    if (part.startsWith('**')) return <strong key={i} className="text-white">{part.slice(2, -2)}</strong>;
+    if (part.startsWith('[[')) return <span key={i} className="bg-amber-400/20 text-amber-200 border border-amber-400/40 rounded px-1.5 py-0.5 text-xs font-bold">A definir: {part.slice(2, -2)}</span>;
+    return <React.Fragment key={i}>{part}</React.Fragment>;
+  });
+
+  const renderBlock = (b, k) => {
+    if (b.type === 'p') return <p key={k} className="text-sm text-gray-300 leading-relaxed">{renderRich(b.text)}</p>;
+    if (b.type === 'h') return <h4 key={k} className="text-sm font-bold text-white pt-1">{b.text}</h4>;
+    if (b.type === 'ul') return <ul key={k} className="list-disc pl-5 space-y-1 text-sm text-gray-300 leading-relaxed">{b.items.map((t, i) => <li key={i}>{renderRich(t)}</li>)}</ul>;
+    if (b.type === 'ol') return <ol key={k} className="list-decimal pl-5 space-y-1 text-sm text-gray-300 leading-relaxed">{b.items.map((t, i) => <li key={i}>{renderRich(t)}</li>)}</ol>;
+    if (b.type === 'rules') return (
+      <ol key={k} className="list-decimal pl-5 space-y-2 text-sm text-gray-300 leading-relaxed">
+        {RULES.map((r, i) => <li key={i}><span className="font-bold text-[#f3e5ab]">{r.t}</span> {r.d}</li>)}
+      </ol>
+    );
+    if (b.type === 'levels') return (
+      <ul key={k} className="space-y-2 text-sm text-gray-300 leading-relaxed">
+        {LEVELS.map((lv, i) => <li key={lv.id}><span className="font-bold text-[#f3e5ab]">{i + 1}. {lv.icon} {lv.name}:</span> {lv.how} <span className="text-gray-400">Habilita: {lv.unlocks}</span></li>)}
+      </ul>
+    );
+    if (b.type === 'table') return (
+      <div key={k} className="overflow-x-auto">
+        <table className="w-full text-sm border border-white/15 rounded-lg">
+          <thead>
+            <tr>{b.headers.map((h, i) => <th key={i} className="text-left bg-[#f3e5ab]/15 text-[#f3e5ab] px-3 py-2 border border-white/15">{h}</th>)}</tr>
+          </thead>
+          <tbody>
+            {b.rows.map((r, ri) => (
+              <tr key={ri}>{r.map((c, ci) => <td key={ci} className="px-3 py-2 border border-white/15 text-gray-300 align-top">{renderRich(c)}</td>)}</tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+    return null;
   };
 
   // ---------------- Reglas de la red ----------------
@@ -892,43 +1019,6 @@ function App() {
     setActiveTab('home');
   };
 
-  // ---------------- Registro de nuevos usuarios ----------------
-
-  const handleRegister = async (e) => {
-    e.preventDefault();
-    const { email, password, confirmPassword, name, username, bio } = registerForm;
-    const cleanUsername = username.trim().toLowerCase().replace(/[^a-z0-9_.]/g, '');
-    if (!name.trim() || !cleanUsername) { alert('Completá tu nombre y un usuario válido (letras, números, punto o guion bajo).'); return; }
-    if (password.length < 6) { alert('La contraseña necesita al menos 6 caracteres.'); return; }
-    if (password !== confirmPassword) { alert('Las contraseñas no coinciden.'); return; }
-
-    // Validar el código de invitación (si escribió uno)
-    const code = inviteCode.trim().toUpperCase();
-    if (code) {
-      const { data: inviterId, error: inviteError } = await supabase.rpc('resolve_invite', { code });
-      if (inviteError) { console.error(inviteError); alert('No se pudo verificar el código de invitación. Probá de nuevo.'); return; }
-      if (!inviterId) { alert('Ese código de invitación no existe. Revisalo o dejalo vacío.'); return; }
-      localStorage.setItem('reddavinci_pending_invite', code);
-    }
-
-    setRegistering(true);
-    const { data, error } = await supabase.auth.signUp({
-      email: email.trim(),
-      password,
-      options: {
-        data: { name: name.trim(), username: cleanUsername, bio: bio.trim(), role: 'artist' }
-      }
-    });
-    setRegistering(false);
-    if (error) { localStorage.removeItem('reddavinci_pending_invite'); alert('Error al registrarte: ' + error.message); return; }
-    setRegisterForm({ email: '', password: '', confirmPassword: '', name: '', username: '', bio: '', roleRequested: 'artist' });
-    setInviteCode('');
-    if (!data.session) {
-      alert('¡Cuenta creada! Revisá tu correo para confirmarla y después iniciá sesión.');
-      setAuthMode('login');
-    }
-  };
-
   if (authLoading) {
     return (
       <div className="min-h-screen bg-[#0a0a0a] text-[#f3e5ab] flex items-center justify-center font-serif">
@@ -953,17 +1043,17 @@ function App() {
             <button onClick={() => setActiveTab('home')} className={`px-4 py-1.5 rounded-full text-xs font-bold transition border ${activeTab === 'home' ? 'bg-[#f3e5ab] text-black border-[#f3e5ab]' : 'bg-black/50 text-[#f3e5ab] border-[#f3e5ab]/40 hover:bg-[#f3e5ab]/20'}`}>
               🎨 Explorar Feed
             </button>
+            <button onClick={() => setActiveTab('escalafon')} className={`px-4 py-1.5 rounded-full text-xs font-bold transition border ${activeTab === 'escalafon' ? 'bg-[#f3e5ab] text-black border-[#f3e5ab]' : 'bg-black/50 text-[#f3e5ab] border-[#f3e5ab]/40 hover:bg-[#f3e5ab]/20'}`}>
+              🏛️ Escalafón
+            </button>
+            <button onClick={() => setActiveTab('reglamento')} className={`px-4 py-1.5 rounded-full text-xs font-bold transition border ${activeTab === 'reglamento' ? 'bg-[#f3e5ab] text-black border-[#f3e5ab]' : 'bg-black/50 text-[#f3e5ab] border-[#f3e5ab]/40 hover:bg-[#f3e5ab]/20'}`}>
+              📖 Reglamento
+            </button>
             {currentUser?.is_admin && (
               <button onClick={() => setActiveTab('admin')} className={`px-4 py-1.5 rounded-full text-xs font-bold transition border ${activeTab === 'admin' ? 'bg-[#f3e5ab] text-black border-[#f3e5ab]' : 'bg-black/50 text-[#f3e5ab] border-[#f3e5ab]/40 hover:bg-[#f3e5ab]/20'}`}>
                 🛡️ Moderación{adminPending.length + adminReports.length > 0 ? ` (${adminPending.length + adminReports.length})` : ''}
               </button>
             )}
-            <button onClick={() => setActiveTab('levels')} className={`px-4 py-1.5 rounded-full text-xs font-bold transition border ${activeTab === 'levels' ? 'bg-[#f3e5ab] text-black border-[#f3e5ab]' : 'bg-black/50 text-[#f3e5ab] border-[#f3e5ab]/40 hover:bg-[#f3e5ab]/20'}`}>
-              🏛️ Escalafón
-            </button>
-            <button onClick={() => setActiveTab('reglamento')} className={`px-4 py-1.5 rounded-full text-xs font-bold transition border ${activeTab === 'reglamento' ? 'bg-[#f3e5ab] text-black border-[#f3e5ab]' : 'bg-black/50 text-[#f3e5ab] border-[#f3e5ab]/40 hover:bg-[#f3e5ab]/20'}`}>
-              📜 Reglamento
-            </button>
             <button onClick={() => setShowRules(true)} className="px-4 py-1.5 rounded-full text-xs font-bold transition border bg-black/50 text-[#f3e5ab] border-[#f3e5ab]/40 hover:bg-[#f3e5ab]/20">
               📜 Reglas
             </button>
@@ -1256,15 +1346,67 @@ function App() {
           </div>
         )}
 
-        {activeTab === 'levels' ? (
-          <LevelsPage />
+        {activeTab === 'escalafon' ? (
+          <main className="w-full max-w-4xl mx-auto bg-black/80 backdrop-blur-xl p-6 md:p-10 rounded-3xl border border-[#f3e5ab]/40 shadow-2xl space-y-8">
+            <div className="text-center space-y-2">
+              <h2 className="text-2xl md:text-3xl font-bold text-[#f3e5ab]">🏛️ Escalafón de la Red Da Vinci</h2>
+              <p className="text-sm text-gray-300">Cinco niveles. Cada artista avanza cumpliendo los requisitos, y el más alto participa del Fondo Medici.</p>
+            </div>
+
+            <div className="space-y-4">
+              {LEVELS.map((lv, i) => {
+                const mine = currentUser && (currentUser.level || 'aprendiz') === lv.id;
+                return (
+                  <div key={lv.id} className={`rounded-2xl border p-5 space-y-2 ${mine ? 'border-[#f3e5ab] bg-[#f3e5ab]/10' : 'border-white/15 bg-black/60'}`}>
+                    <div className="flex items-center justify-between gap-3 flex-wrap">
+                      <h3 className="text-lg font-bold text-[#f3e5ab]">{lv.icon} Nivel {i + 1} · {lv.name}</h3>
+                      {mine && <span className="text-xs font-bold bg-[#f3e5ab] text-black px-3 py-1 rounded-full">Estás acá</span>}
+                    </div>
+                    <p className="text-sm text-gray-300"><span className="font-bold text-white">Cómo se accede:</span> {lv.how}</p>
+                    <p className="text-sm text-gray-300"><span className="font-bold text-white">Qué habilita:</span> {lv.unlocks}</p>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="bg-black/60 border border-white/15 rounded-2xl p-5 space-y-2">
+              <h3 className="text-sm uppercase tracking-widest text-[#f3e5ab] font-bold">Cómo funcionan las invitaciones</h3>
+              <p className="text-sm text-gray-300 leading-relaxed">Cada integrante tiene un código de invitación personal. Un artista invitado cuenta cuando llega a Artesano, no antes, así que no alcanza con crear cuentas. Para ser Maestro hay que tener 5 invitados que ya sean Artesanos.</p>
+            </div>
+
+            <div className="bg-black/60 border border-white/15 rounded-2xl p-5 space-y-2">
+              <h3 className="text-sm uppercase tracking-widest text-[#f3e5ab] font-bold">El Fondo Medici</h3>
+              <p className="text-sm text-gray-300 leading-relaxed">El 5% de cada ingreso de la red se acumula en el Fondo Medici y se reparte entre los integrantes de ese nivel. El fondo se acumula desde el lanzamiento aunque todavía no haya nadie en el nivel, y su saldo es público.</p>
+            </div>
+
+            <p className="text-xs text-gray-400 text-center">Los requisitos son una propuesta inicial y pueden ajustarse antes del lanzamiento. El detalle completo está en el Reglamento.</p>
+            <div className="text-center">
+              <button onClick={() => setActiveTab('reglamento')} className="bg-[#f3e5ab]/15 border border-[#f3e5ab]/50 text-[#f3e5ab] px-6 py-3 rounded-xl text-xs hover:bg-[#f3e5ab] hover:text-black transition font-bold uppercase tracking-wider">Leer el Reglamento</button>
+            </div>
+          </main>
         ) : activeTab === 'reglamento' ? (
-          <ReglamentoPage rules={RULES} />
+          <main className="w-full max-w-4xl mx-auto bg-black/80 backdrop-blur-xl p-6 md:p-10 rounded-3xl border border-[#f3e5ab]/40 shadow-2xl space-y-6">
+            <div className="text-center space-y-2">
+              <h2 className="text-2xl md:text-3xl font-bold text-[#f3e5ab]">📖 Reglamento de la Red Da Vinci</h2>
+              <p className="text-sm text-gray-300">Las reglas de la cooperativa, públicas y a la vista de todos.</p>
+            </div>
+            <p className="text-xs text-amber-200 bg-amber-950/40 border border-amber-500/30 rounded-xl px-4 py-3 leading-relaxed">
+              Versión 0.1, preliminar. Este reglamento está en revisión legal y contable y puede cambiar antes del lanzamiento. Las etiquetas amarillas marcan los puntos que todavía se están definiendo.
+            </p>
+            <div className="space-y-3">
+              {REGLAMENTO.map((art, i) => (
+                <details key={i} open={i === 0} className="bg-black/60 border border-white/15 rounded-2xl p-4 group">
+                  <summary className="cursor-pointer font-bold text-[#f3e5ab] text-sm md:text-base">Artículo {i + 1}. {art.title}</summary>
+                  <div className="mt-3 space-y-3">
+                    {art.blocks.map((b, bi) => renderBlock(b, bi))}
+                  </div>
+                </details>
+              ))}
+            </div>
+          </main>
         ) : activeTab === 'admin' && currentUser?.is_admin ? (
           <main className="w-full max-w-5xl mx-auto bg-black/80 backdrop-blur-xl p-6 md:p-10 rounded-3xl border border-[#f3e5ab]/40 shadow-2xl space-y-10">
             <h2 className="text-2xl font-bold text-[#f3e5ab]">🛡️ Panel de moderación</h2>
-
-            <AdminLevels />
 
             <section className="space-y-4">
               <h3 className="text-sm uppercase tracking-widest text-[#f3e5ab] font-bold">Pendientes de aprobación ({adminPending.length})</h3>
@@ -1332,6 +1474,38 @@ function App() {
                 </div>
               )}
             </section>
+
+            <section className="space-y-4">
+              <h3 className="text-sm uppercase tracking-widest text-[#f3e5ab] font-bold">Escalafón de integrantes ({adminAllProfiles.length})</h3>
+              <p className="text-xs text-gray-400">Cambiá el nivel de cada integrante. Discípulo o superior lo marca como verificado; Aprendiz le quita la verificación.</p>
+              <div className="space-y-2">
+                {adminAllProfiles.map((pr) => {
+                  const invited = adminAllProfiles.filter(x => x.invited_by === pr.id);
+                  const reached = invited.filter(x => ['artesano', 'maestro', 'medici'].includes(x.level)).length;
+                  return (
+                    <div key={pr.id} className="bg-black/70 p-3 rounded-xl border border-white/15 flex items-center justify-between gap-3 flex-wrap">
+                      <div className="flex items-center gap-3 min-w-0">
+                        {renderAvatar(pr.avatar_url, pr.name, 'w-9 h-9', 'text-sm')}
+                        <div className="min-w-0">
+                          <p className="text-sm font-bold text-[#f3e5ab] truncate">{pr.name}</p>
+                          <p className="text-xs text-gray-400 truncate">@{pr.username} · invitó {invited.length} · {reached}/5 en Artesano o más</p>
+                          {(pr.level === 'artesano' && reached >= 5) && (
+                            <p className="text-xs text-green-300 font-bold">✔ Cumple los 5 invitados: puede pasar a Maestro</p>
+                          )}
+                        </div>
+                      </div>
+                      <select
+                        value={pr.level || 'aprendiz'}
+                        onChange={(e) => setProfileLevel(pr.id, e.target.value)}
+                        className="bg-black border border-white/20 rounded-lg px-2 py-1.5 text-xs text-white"
+                      >
+                        {LEVELS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                      </select>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
           </main>
         ) : activeTab === 'profile' && currentUser ? (
           <main className="w-full max-w-6xl mx-auto bg-black/80 backdrop-blur-xl p-6 md:p-10 rounded-3xl border border-[#f3e5ab]/40 shadow-2xl space-y-8">
@@ -1355,7 +1529,6 @@ function App() {
               <div className="flex-1 text-center md:text-left space-y-2">
                 <h2 className="text-2xl md:text-3xl font-bold text-[#f3e5ab] tracking-wide">{currentUser.name}</h2>
                 <p className="text-sm text-gray-300">@{currentUser.username}</p>
-                <LevelBadge level={currentUser.level} />
                 <div>
                   <span className={`text-xs px-3 py-1 rounded-full inline-block border ${
                     currentUser.curated ? 'bg-green-950/70 text-green-300 border-green-500/50' : 'bg-amber-950/50 text-amber-200 border-amber-500/40'
@@ -1374,14 +1547,62 @@ function App() {
               </div>
             </div>
 
+            <div className="space-y-4">
+              <h3 className="text-sm uppercase tracking-widest text-[#f3e5ab] font-bold">Mi camino en la red</h3>
+              {(() => {
+                const lv = LEVELS.find(l => l.id === (currentUser.level || 'aprendiz')) || LEVELS[0];
+                const next = LEVELS[LEVELS.indexOf(lv) + 1];
+                const reached = myInvitees.filter(i => ['artesano', 'maestro', 'medici'].includes(i.level)).length;
+                const code = currentUser.invite_code;
+                return (
+                  <div className="bg-black/60 border border-[#f3e5ab]/40 rounded-2xl p-5 space-y-4">
+                    <div className="flex items-center justify-between gap-3 flex-wrap">
+                      <div>
+                        <p className="text-xs text-gray-400">Tu nivel</p>
+                        <p className="text-xl font-bold text-[#f3e5ab]">{lv.icon} {lv.name}</p>
+                      </div>
+                      <button onClick={() => setActiveTab('escalafon')} className="bg-[#f3e5ab]/15 border border-[#f3e5ab]/50 text-[#f3e5ab] px-4 py-2 rounded-xl text-xs hover:bg-[#f3e5ab] hover:text-black transition font-bold">Ver escalafón completo</button>
+                    </div>
+                    {next && (
+                      <p className="text-sm text-gray-300 leading-relaxed"><span className="font-bold text-white">Próximo nivel: {next.icon} {next.name}.</span> {next.how}</p>
+                    )}
+                    <div className="border-t border-white/10 pt-4 space-y-3">
+                      <p className="text-xs text-gray-400">Tu código de invitación</p>
+                      {code ? (
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-mono text-lg font-bold tracking-widest text-[#f3e5ab] bg-black/60 border border-white/20 rounded-lg px-3 py-1.5">{code}</span>
+                          <button onClick={() => copyInviteLink(code)} className="bg-[#f3e5ab] text-black px-4 py-2 rounded-lg text-xs font-bold hover:bg-white transition">Copiar enlace de invitación</button>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-gray-500">Tu código todavía no está disponible.</p>
+                      )}
+                      <p className="text-xs text-gray-400 leading-relaxed">Invitaste a {myInvitees.length} artista{myInvitees.length === 1 ? '' : 's'}. Un invitado cuenta cuando llega a Artesano: {reached} de 5 lo lograron.</p>
+                      <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
+                        <div className="h-full bg-[#f3e5ab]" style={{ width: `${Math.min(100, (reached / 5) * 100)}%` }} />
+                      </div>
+                      {myInvitees.length > 0 && (
+                        <ul className="space-y-1.5">
+                          {myInvitees.map((inv) => (
+                            <li key={inv.id} className="text-sm flex items-center gap-2">
+                              <span className="font-bold text-[#f3e5ab]">{inv.name}</span>
+                              <span className="text-xs text-gray-400">@{inv.username}</span>
+                              {renderLevelBadge(inv.level)}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
             <div className="space-y-3">
               <h3 className="text-sm uppercase tracking-widest text-[#f3e5ab] font-bold">Biografía Artística</h3>
               <div className="bg-black/60 p-6 rounded-2xl border border-white/15 text-gray-200 text-base md:text-lg leading-relaxed shadow-inner">
                 {currentUser.bio || 'Aún no has agregado una biografía a tu perfil.'}
               </div>
             </div>
-
-            <ProgressBlock currentUser={currentUser} />
 
             <div className="bg-black/60 border border-[#f3e5ab]/40 rounded-2xl p-6 md:p-8 space-y-6 shadow-xl">
               <div className="border-b border-[#f3e5ab]/20 pb-4">
@@ -1718,7 +1939,6 @@ function App() {
                         <p className="text-xs text-gray-400 truncate">@{currentUser.username}</p>
                       </div>
                     </div>
-                    <LevelBadge level={currentUser.level} />
                     <button onClick={() => setActiveTab('profile')} className="w-full bg-[#f3e5ab] text-black font-bold py-2.5 rounded-xl text-xs hover:bg-white transition shadow">
                       Mi Perfil y Obras
                     </button>
@@ -1729,133 +1949,57 @@ function App() {
                 ) : (
                   <div className="space-y-4">
                     <h3 className="text-[#f3e5ab] font-bold text-sm text-center">Acceso a la Red</h3>
-
-                    <div className="flex gap-2">
-                      <button type="button" onClick={() => setAuthMode('login')} className={`flex-1 py-2 rounded-lg text-xs font-bold border transition ${authMode === 'login' ? 'bg-[#f3e5ab] text-black border-[#f3e5ab]' : 'text-[#f3e5ab] border-[#f3e5ab]/40 hover:bg-[#f3e5ab]/20'}`}>Entrar</button>
-                      <button type="button" onClick={() => setAuthMode('register')} className={`flex-1 py-2 rounded-lg text-xs font-bold border transition ${authMode === 'register' ? 'bg-[#f3e5ab] text-black border-[#f3e5ab]' : 'text-[#f3e5ab] border-[#f3e5ab]/40 hover:bg-[#f3e5ab]/20'}`}>Registrarme</button>
+                    <div className="flex rounded-xl overflow-hidden border border-[#f3e5ab]/40 text-xs font-bold">
+                      <button type="button" onClick={() => setAuthMode('login')} className={`flex-1 py-2 transition ${authMode === 'login' ? 'bg-[#f3e5ab] text-black' : 'text-[#f3e5ab] hover:bg-[#f3e5ab]/20'}`}>Entrar</button>
+                      <button type="button" onClick={() => setAuthMode('register')} className={`flex-1 py-2 transition ${authMode === 'register' ? 'bg-[#f3e5ab] text-black' : 'text-[#f3e5ab] hover:bg-[#f3e5ab]/20'}`}>Crear cuenta</button>
                     </div>
-
-                    {authMode === 'login' ? (
-                      <form onSubmit={async (e) => {
-                        e.preventDefault();
-                        const { error } = await supabase.auth.signInWithPassword({ email: loginForm.email, password: loginForm.password });
-                        if (error) { alert('Error al iniciar sesión: ' + error.message); return; }
-                        if (rememberMe) {
-                          localStorage.setItem('reddavinci_remembered_email', loginForm.email);
-                        } else {
-                          localStorage.removeItem('reddavinci_remembered_email');
-                        }
-                      }} className="space-y-3">
-                        <input type="email" placeholder="Correo electrónico" value={loginForm.email} onChange={(e) => setLoginForm({...loginForm, email: e.target.value})} className="w-full bg-black/70 border border-white/20 rounded-xl p-3 text-xs text-white" required />
-                        <div className="relative">
-                          <input
-                            type={showLoginPassword ? 'text' : 'password'}
-                            placeholder="Contraseña"
-                            value={loginForm.password}
-                            onChange={(e) => setLoginForm({...loginForm, password: e.target.value})}
-                            className="w-full bg-black/70 border border-white/20 rounded-xl p-3 pr-10 text-xs text-white"
-                            required
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setShowLoginPassword(v => !v)}
-                            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#f3e5ab]"
-                            tabIndex={-1}
-                          >
-                            {showLoginPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                          </button>
-                        </div>
-                        <label className="flex items-center gap-2 cursor-pointer select-none">
-                          <input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} className="accent-[#f3e5ab] w-3.5 h-3.5" />
-                          <span className="text-xs text-gray-300">Recordar mi cuenta</span>
-                        </label>
-                        <button type="submit" className="w-full bg-[#f3e5ab] text-black font-bold py-3 rounded-xl text-xs hover:bg-white transition">Entrar</button>
-                      </form>
-                    ) : (
+                    {authMode === 'register' && (
                       <form onSubmit={handleRegister} className="space-y-3">
-                        <input
-                          type="text"
-                          placeholder="Código de invitación (opcional)"
-                          value={inviteCode}
-                          onChange={(e) => setInviteCode(e.target.value)}
-                          className="w-full bg-black/70 border border-white/20 rounded-xl p-3 text-xs text-white uppercase"
-                        />
-                        <input
-                          type="text"
-                          placeholder="Nombre"
-                          value={registerForm.name}
-                          onChange={(e) => setRegisterForm({...registerForm, name: e.target.value})}
-                          className="w-full bg-black/70 border border-white/20 rounded-xl p-3 text-xs text-white"
-                          required
-                        />
-                        <input
-                          type="text"
-                          placeholder="Usuario (sin espacios)"
-                          value={registerForm.username}
-                          onChange={(e) => setRegisterForm({...registerForm, username: e.target.value})}
-                          className="w-full bg-black/70 border border-white/20 rounded-xl p-3 text-xs text-white"
-                          required
-                        />
-                        <input
-                          type="email"
-                          placeholder="Correo electrónico"
-                          value={registerForm.email}
-                          onChange={(e) => setRegisterForm({...registerForm, email: e.target.value})}
-                          className="w-full bg-black/70 border border-white/20 rounded-xl p-3 text-xs text-white"
-                          required
-                        />
-                        <div className="relative">
-                          <input
-                            type={showRegPassword ? 'text' : 'password'}
-                            placeholder="Contraseña (mín. 6 caracteres)"
-                            value={registerForm.password}
-                            onChange={(e) => setRegisterForm({...registerForm, password: e.target.value})}
-                            className="w-full bg-black/70 border border-white/20 rounded-xl p-3 pr-10 text-xs text-white"
-                            required
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setShowRegPassword(v => !v)}
-                            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#f3e5ab]"
-                            tabIndex={-1}
-                          >
-                            {showRegPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                          </button>
-                        </div>
-                        <div className="relative">
-                          <input
-                            type={showRegConfirm ? 'text' : 'password'}
-                            placeholder="Repetir contraseña"
-                            value={registerForm.confirmPassword}
-                            onChange={(e) => setRegisterForm({...registerForm, confirmPassword: e.target.value})}
-                            className="w-full bg-black/70 border border-white/20 rounded-xl p-3 pr-10 text-xs text-white"
-                            required
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setShowRegConfirm(v => !v)}
-                            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#f3e5ab]"
-                            tabIndex={-1}
-                          >
-                            {showRegConfirm ? <EyeOff size={16} /> : <Eye size={16} />}
-                          </button>
-                        </div>
-                        <textarea
-                          rows="2"
-                          placeholder="Biografía artística (opcional)"
-                          value={registerForm.bio}
-                          onChange={(e) => setRegisterForm({...registerForm, bio: e.target.value})}
-                          className="w-full bg-black/70 border border-white/20 rounded-xl p-3 text-xs text-white resize-y"
-                        />
-                        <button
-                          type="submit"
-                          disabled={registering}
-                          className="w-full bg-[#f3e5ab] text-black font-bold py-3 rounded-xl text-xs hover:bg-white transition disabled:opacity-60"
-                        >
-                          {registering ? 'Creando cuenta...' : 'Crear cuenta'}
-                        </button>
+                        <input type="text" placeholder="Nombre y apellido" value={registerForm.name} onChange={(e) => setRegisterForm({ ...registerForm, name: e.target.value })} className="w-full bg-black/70 border border-white/20 rounded-xl p-3 text-xs text-white" required />
+                        <input type="text" placeholder="Nombre de usuario" value={registerForm.username} onChange={(e) => setRegisterForm({ ...registerForm, username: e.target.value })} className="w-full bg-black/70 border border-white/20 rounded-xl p-3 text-xs text-white" required />
+                        <input type="email" placeholder="Correo electrónico" value={registerForm.email} onChange={(e) => setRegisterForm({ ...registerForm, email: e.target.value })} className="w-full bg-black/70 border border-white/20 rounded-xl p-3 text-xs text-white" required />
+                        <input type="password" placeholder="Contraseña (mínimo 6)" value={registerForm.password} onChange={(e) => setRegisterForm({ ...registerForm, password: e.target.value })} className="w-full bg-black/70 border border-white/20 rounded-xl p-3 text-xs text-white" required />
+                        <input type="password" placeholder="Repetir contraseña" value={registerForm.confirmPassword} onChange={(e) => setRegisterForm({ ...registerForm, confirmPassword: e.target.value })} className="w-full bg-black/70 border border-white/20 rounded-xl p-3 text-xs text-white" required />
+                        <input type="text" placeholder="Código de invitación (opcional)" value={registerForm.inviteCode || ''} onChange={(e) => setRegisterForm({ ...registerForm, inviteCode: e.target.value.toUpperCase() })} className="w-full bg-black/70 border border-white/20 rounded-xl p-3 text-xs text-white tracking-widest" />
+                        <p className="text-[11px] text-gray-400">Al entrar vas a leer y aceptar las reglas de la red.</p>
+                        <button type="submit" disabled={registering} className="w-full bg-[#f3e5ab] text-black font-bold py-3 rounded-xl text-xs hover:bg-white transition disabled:opacity-60">{registering ? 'Creando cuenta...' : 'Crear cuenta'}</button>
                       </form>
                     )}
+                    <form onSubmit={async (e) => {
+                      e.preventDefault();
+                      const { error } = await supabase.auth.signInWithPassword({ email: loginForm.email, password: loginForm.password });
+                      if (error) { alert('Error al iniciar sesión: ' + error.message); return; }
+                      if (rememberMe) {
+                        localStorage.setItem('reddavinci_remembered_email', loginForm.email);
+                      } else {
+                        localStorage.removeItem('reddavinci_remembered_email');
+                      }
+                    }} className={`space-y-3 ${authMode === 'login' ? '' : 'hidden'}`}>
+                      <input type="email" placeholder="Correo electrónico" value={loginForm.email} onChange={(e) => setLoginForm({...loginForm, email: e.target.value})} className="w-full bg-black/70 border border-white/20 rounded-xl p-3 text-xs text-white" required />
+                      <div className="relative">
+                        <input
+                          type={showLoginPassword ? 'text' : 'password'}
+                          placeholder="Contraseña"
+                          value={loginForm.password}
+                          onChange={(e) => setLoginForm({...loginForm, password: e.target.value})}
+                          className="w-full bg-black/70 border border-white/20 rounded-xl p-3 pr-10 text-xs text-white"
+                          required
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowLoginPassword(v => !v)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#f3e5ab]"
+                          tabIndex={-1}
+                        >
+                          {showLoginPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
+                      </div>
+                      <label className="flex items-center gap-2 cursor-pointer select-none">
+                        <input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} className="accent-[#f3e5ab] w-3.5 h-3.5" />
+                        <span className="text-xs text-gray-300">Recordar mi cuenta</span>
+                      </label>
+                      <button type="submit" className="w-full bg-[#f3e5ab] text-black font-bold py-3 rounded-xl text-xs hover:bg-white transition">Entrar</button>
+                    </form>
                   </div>
                 )}
               </div>
@@ -1896,9 +2040,11 @@ function App() {
                         <div className="flex items-center gap-3">
                           {renderAvatar(post.profiles?.avatar_url, post.profiles?.name, 'w-11 h-11', 'text-base')}
                           <div>
-                            <h4 className="font-bold text-[#f3e5ab] text-base">{post.profiles?.name || 'Artista'}</h4>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h4 className="font-bold text-[#f3e5ab] text-base">{post.profiles?.name || 'Artista'}</h4>
+                              {renderLevelBadge(post.profiles?.level)}
+                            </div>
                             <p className="text-xs text-gray-400">@{post.profiles?.username || 'artista'}</p>
-                            <LevelBadge level={post.profiles?.level} />
                           </div>
                         </div>
                         <span className="text-xs text-gray-500">{new Date(post.created_at).toLocaleDateString()}</span>

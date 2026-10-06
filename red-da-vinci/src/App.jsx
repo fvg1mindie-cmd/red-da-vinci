@@ -104,6 +104,18 @@ function App() {
   const [adminAllProfiles, setAdminAllProfiles] = useState([]);
   const [myInvitees, setMyInvitees] = useState([]);
   const [authMode, setAuthMode] = useState('login');
+  const [recoveryMode, setRecoveryMode] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [newPassword2, setNewPassword2] = useState('');
+  const [resetEmail, setResetEmail] = useState('');
+  const [sendingReset, setSendingReset] = useState(false);
+  const [savingNewPassword, setSavingNewPassword] = useState(false);
+  const [myFollowing, setMyFollowing] = useState([]);
+  const [feedFilter, setFeedFilter] = useState('all');
+  const [viewedProfile, setViewedProfile] = useState(null);
+  const [viewedPosts, setViewedPosts] = useState([]);
+  const [viewedStats, setViewedStats] = useState({ followers: 0, following: 0 });
+  const [loadingViewed, setLoadingViewed] = useState(false);
   const [registering, setRegistering] = useState(false);
 
   useEffect(() => {
@@ -114,6 +126,7 @@ function App() {
     });
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      if (_event === 'PASSWORD_RECOVERY') setRecoveryMode(true);
       setSession(newSession);
       if (newSession) loadProfile(newSession.user.id, newSession.user);
       else {
@@ -196,6 +209,7 @@ function App() {
       loadMyWorks(currentUser.id);
       loadMyPosts(currentUser.id);
       loadMyInvitees(currentUser.id);
+      loadMyFollowing(currentUser.id);
     }
   }, [currentUser]);
 
@@ -1010,11 +1024,93 @@ function App() {
     }
   };
 
+  // ---------------- Recuperar contraseña ----------------
+
+  const handleForgotPassword = async (e) => {
+    e.preventDefault();
+    setSendingReset(true);
+    const { error } = await supabase.auth.resetPasswordForEmail(resetEmail.trim(), { redirectTo: window.location.origin });
+    setSendingReset(false);
+    if (error) { alert('No se pudo enviar el correo: ' + error.message); return; }
+    alert('Si ese correo tiene una cuenta, te enviamos un enlace para elegir una contraseña nueva. Revisá también la carpeta de spam.');
+    setAuthMode('login');
+  };
+
+  const handleSetNewPassword = async (e) => {
+    e.preventDefault();
+    if (newPassword.length < 6) { alert('La contraseña necesita al menos 6 caracteres.'); return; }
+    if (newPassword !== newPassword2) { alert('Las contraseñas no coinciden.'); return; }
+    setSavingNewPassword(true);
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    setSavingNewPassword(false);
+    if (error) { alert('No se pudo cambiar la contraseña: ' + error.message); return; }
+    setNewPassword('');
+    setNewPassword2('');
+    setRecoveryMode(false);
+    window.history.replaceState({}, '', window.location.pathname);
+    alert('¡Listo! Tu contraseña fue cambiada.');
+  };
+
+  // ---------------- Seguir perfiles y perfiles públicos ----------------
+
+  const loadMyFollowing = async (userId) => {
+    const { data, error } = await supabase.from('follows').select('following_id').eq('follower_id', userId);
+    if (error) console.error(error); else setMyFollowing((data || []).map(r => r.following_id));
+  };
+
+  const toggleFollow = async (targetId) => {
+    if (!currentUser) { alert('⚠️ Iniciá sesión para seguir a otros artistas.'); return; }
+    if (targetId === currentUser.id) return;
+    const following = myFollowing.includes(targetId);
+    if (following) {
+      const { error } = await supabase.from('follows').delete().eq('follower_id', currentUser.id).eq('following_id', targetId);
+      if (error) { console.error(error); alert('Error: ' + error.message); return; }
+      setMyFollowing(prev => prev.filter(id => id !== targetId));
+    } else {
+      const { error } = await supabase.from('follows').insert({ follower_id: currentUser.id, following_id: targetId });
+      if (error) { console.error(error); alert('Error: ' + error.message); return; }
+      setMyFollowing(prev => [...prev, targetId]);
+    }
+    if (viewedProfile?.id === targetId) {
+      setViewedStats(prev => ({ ...prev, followers: Math.max(0, prev.followers + (following ? -1 : 1)) }));
+    }
+  };
+
+  const openUserProfile = async (userId) => {
+    if (!userId) return;
+    if (currentUser && userId === currentUser.id) { setActiveTab('profile'); window.scrollTo(0, 0); return; }
+    setActiveTab('user');
+    setLoadingViewed(true);
+    setViewedProfile(null);
+    setViewedPosts([]);
+    window.scrollTo(0, 0);
+    const { data: prof, error: profError } = await supabase
+      .from('profiles')
+      .select('id, name, username, bio, avatar_url, level, curated, created_at')
+      .eq('id', userId)
+      .single();
+    if (profError) { console.error(profError); setLoadingViewed(false); setActiveTab('home'); return; }
+    const { data: ps } = await supabase
+      .from('posts')
+      .select('*, works(*)')
+      .eq('author_id', userId)
+      .eq('status', 'approved')
+      .order('created_at', { ascending: false });
+    const { count: followers } = await supabase.from('follows').select('*', { count: 'exact', head: true }).eq('following_id', userId);
+    const { count: following } = await supabase.from('follows').select('*', { count: 'exact', head: true }).eq('follower_id', userId);
+    setViewedProfile(prof);
+    setViewedPosts(ps || []);
+    setViewedStats({ followers: followers || 0, following: following || 0 });
+    setLoadingViewed(false);
+  };
+
   const handleLogout = async () => {
     await supabase.auth.signOut();
     setCurrentUser(null);
     setActiveTab('home');
   };
+
+  const visiblePosts = feedFilter === 'following' && currentUser ? posts.filter(p => myFollowing.includes(p.author_id)) : posts;
 
   if (authLoading) {
     return (
@@ -1256,6 +1352,19 @@ function App() {
           </div>
         )}
 
+        {recoveryMode && (
+          <div className="fixed inset-0 z-[130] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4">
+            <form onSubmit={handleSetNewPassword} className="bg-[#111] border border-[#f3e5ab]/50 rounded-2xl p-6 w-full max-w-sm shadow-2xl space-y-4">
+              <h3 className="text-[#f3e5ab] font-bold text-lg">🔑 Elegí tu contraseña nueva</h3>
+              <input type="password" placeholder="Contraseña nueva (mínimo 6)" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className="w-full bg-black/70 border border-white/20 rounded-xl p-3 text-sm text-white" required />
+              <input type="password" placeholder="Repetir contraseña" value={newPassword2} onChange={(e) => setNewPassword2(e.target.value)} className="w-full bg-black/70 border border-white/20 rounded-xl p-3 text-sm text-white" required />
+              <button type="submit" disabled={savingNewPassword} className="w-full bg-[#f3e5ab] text-black font-bold py-3 rounded-xl hover:bg-white transition text-sm disabled:opacity-60">
+                {savingNewPassword ? 'Guardando...' : 'Guardar contraseña'}
+              </button>
+            </form>
+          </div>
+        )}
+
         {(mustAcceptRules || showRules) && (
           <div className="fixed inset-0 z-[120] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-[#111] border border-[#f3e5ab]/50 rounded-2xl p-6 w-full max-w-xl shadow-2xl max-h-[92vh] flex flex-col">
@@ -1343,7 +1452,76 @@ function App() {
           </div>
         )}
 
-        {activeTab === 'escalafon' ? (
+        {activeTab === 'user' ? (
+          <main className="w-full max-w-4xl mx-auto bg-black/80 backdrop-blur-xl p-6 md:p-10 rounded-3xl border border-[#f3e5ab]/40 shadow-2xl space-y-8">
+            {loadingViewed || !viewedProfile ? (
+              <p className="text-center text-gray-400 text-sm">Cargando perfil...</p>
+            ) : (
+              <>
+                <div className="flex flex-col md:flex-row items-center gap-6 border-b border-white/20 pb-8">
+                  {renderAvatar(viewedProfile.avatar_url, viewedProfile.name, 'w-24 h-24 md:w-32 md:h-32', 'text-4xl md:text-5xl', 'shadow-2xl ring-4 ring-[#f3e5ab]/30')}
+                  <div className="flex-1 text-center md:text-left space-y-2">
+                    <h2 className="text-2xl md:text-3xl font-bold text-[#f3e5ab] tracking-wide">{viewedProfile.name}</h2>
+                    <p className="text-sm text-gray-300">@{viewedProfile.username}</p>
+                    {renderLevelBadge(viewedProfile.level)}
+                    <p className="text-sm text-gray-300">
+                      <span className="font-bold text-white">{viewedStats.followers}</span> seguidores · <span className="font-bold text-white">{viewedStats.following}</span> siguiendo
+                    </p>
+                  </div>
+                  {currentUser ? (
+                    <button
+                      onClick={() => toggleFollow(viewedProfile.id)}
+                      className={`px-6 py-2.5 rounded-xl text-sm font-bold border transition ${myFollowing.includes(viewedProfile.id) ? 'bg-[#f3e5ab] text-black border-[#f3e5ab]' : 'text-[#f3e5ab] border-[#f3e5ab] hover:bg-[#f3e5ab]/20'}`}
+                    >
+                      {myFollowing.includes(viewedProfile.id) ? 'Siguiendo ✓' : '+ Seguir'}
+                    </button>
+                  ) : (
+                    <p className="text-xs text-gray-400">Iniciá sesión para seguir a este artista.</p>
+                  )}
+                </div>
+
+                {viewedProfile.bio && (
+                  <div className="space-y-3">
+                    <h3 className="text-sm uppercase tracking-widest text-[#f3e5ab] font-bold">Biografía Artística</h3>
+                    <div className="bg-black/60 p-6 rounded-2xl border border-white/15 text-gray-200 text-base leading-relaxed">{viewedProfile.bio}</div>
+                  </div>
+                )}
+
+                <div className="space-y-4">
+                  <h3 className="text-sm uppercase tracking-widest text-[#f3e5ab] font-bold">Obras publicadas ({viewedPosts.length})</h3>
+                  {viewedPosts.length === 0 ? (
+                    <p className="text-sm text-gray-400 bg-black/50 rounded-2xl border border-white/10 p-6 text-center">Todavía no hay publicaciones visibles.</p>
+                  ) : (
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                      {viewedPosts.map((post) => {
+                        const imgs = getPostImages(post);
+                        const first = imgs[0];
+                        return (
+                          <div key={post.id} className="bg-black/70 rounded-2xl border border-[#f3e5ab]/30 overflow-hidden">
+                            {first && (
+                              isVideo(first)
+                                ? <video src={first} className="w-full h-48 object-cover bg-black" controls />
+                                : <img src={first} alt={post.works?.title || 'Obra'} onClick={() => openLightbox(imgs, 0)} className="w-full h-48 object-cover bg-black cursor-zoom-in" />
+                            )}
+                            <div className="p-3">
+                              <p className="text-sm font-bold text-white truncate">{post.works?.title || 'Publicación'}</p>
+                              {post.content && <p className="text-xs text-gray-400 line-clamp-2 mt-1">{post.content}</p>}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+            <div>
+              <button onClick={() => setActiveTab('home')} className="bg-[#f3e5ab]/15 border border-[#f3e5ab]/50 text-[#f3e5ab] px-6 py-3 rounded-xl text-xs hover:bg-[#f3e5ab] hover:text-black transition font-bold uppercase tracking-wider">
+                ← Volver al Feed
+              </button>
+            </div>
+          </main>
+        ) : activeTab === 'escalafon' ? (
           <main className="w-full max-w-4xl mx-auto bg-black/80 backdrop-blur-xl p-6 md:p-10 rounded-3xl border border-[#f3e5ab]/40 shadow-2xl space-y-8">
             <div className="text-center space-y-2">
               <h2 className="text-2xl md:text-3xl font-bold text-[#f3e5ab]">🏛️ Escalafón de la Red Da Vinci</h2>
@@ -1962,6 +2140,15 @@ function App() {
                         <button type="submit" disabled={registering} className="w-full bg-[#f3e5ab] text-black font-bold py-3 rounded-xl text-xs hover:bg-white transition disabled:opacity-60">{registering ? 'Creando cuenta...' : 'Crear cuenta'}</button>
                       </form>
                     )}
+
+                    {authMode === 'forgot' && (
+                      <form onSubmit={handleForgotPassword} className="space-y-3">
+                        <p className="text-xs text-gray-300 leading-relaxed">Escribí tu correo y te enviamos un enlace para elegir una contraseña nueva.</p>
+                        <input type="email" placeholder="Correo electrónico" value={resetEmail} onChange={(e) => setResetEmail(e.target.value)} className="w-full bg-black/70 border border-white/20 rounded-xl p-3 text-xs text-white" required />
+                        <button type="submit" disabled={sendingReset} className="w-full bg-[#f3e5ab] text-black font-bold py-3 rounded-xl text-xs hover:bg-white transition disabled:opacity-60">{sendingReset ? 'Enviando...' : 'Enviar enlace'}</button>
+                        <button type="button" onClick={() => setAuthMode('login')} className="w-full text-xs text-gray-400 hover:text-white underline">Volver</button>
+                      </form>
+                    )}
                     <form onSubmit={async (e) => {
                       e.preventDefault();
                       const { error } = await supabase.auth.signInWithPassword({ email: loginForm.email, password: loginForm.password });
@@ -1996,6 +2183,7 @@ function App() {
                         <span className="text-xs text-gray-300">Recordar mi cuenta</span>
                       </label>
                       <button type="submit" className="w-full bg-[#f3e5ab] text-black font-bold py-3 rounded-xl text-xs hover:bg-white transition">Entrar</button>
+                      <button type="button" onClick={() => { setResetEmail(loginForm.email); setAuthMode('forgot'); }} className="w-full text-xs text-gray-400 hover:text-[#f3e5ab] underline">¿Olvidaste tu contraseña?</button>
                     </form>
                   </div>
                 )}
@@ -2029,12 +2217,19 @@ function App() {
                 ))}
               </div>
 
+              {currentUser && (
+                <div className="flex gap-2">
+                  <button onClick={() => setFeedFilter('all')} className={`px-4 py-1.5 rounded-full text-xs font-bold border transition ${feedFilter === 'all' ? 'bg-[#f3e5ab] text-black border-[#f3e5ab]' : 'bg-black/50 text-[#f3e5ab] border-[#f3e5ab]/40 hover:bg-[#f3e5ab]/20'}`}>Todos</button>
+                  <button onClick={() => setFeedFilter('following')} className={`px-4 py-1.5 rounded-full text-xs font-bold border transition ${feedFilter === 'following' ? 'bg-[#f3e5ab] text-black border-[#f3e5ab]' : 'bg-black/50 text-[#f3e5ab] border-[#f3e5ab]/40 hover:bg-[#f3e5ab]/20'}`}>Siguiendo ({myFollowing.length})</button>
+                </div>
+              )}
+
               <div className="space-y-6">
-                {posts.length > 0 ? (
-                  posts.map((post) => (
+                {visiblePosts.length > 0 ? (
+                  visiblePosts.map((post) => (
                     <div key={post.id} className="bg-black/80 backdrop-blur-md p-6 rounded-3xl border border-[#f3e5ab]/30 shadow-2xl space-y-4">
                       <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-3 cursor-pointer" onClick={() => openUserProfile(post.author_id)} title="Ver perfil">
                           {renderAvatar(post.profiles?.avatar_url, post.profiles?.name, 'w-11 h-11', 'text-base')}
                           <div>
                             <div className="flex items-center gap-2 flex-wrap">
@@ -2044,7 +2239,17 @@ function App() {
                             <p className="text-xs text-gray-400">@{post.profiles?.username || 'artista'}</p>
                           </div>
                         </div>
-                        <span className="text-xs text-gray-500">{new Date(post.created_at).toLocaleDateString()}</span>
+                        <div className="flex items-center gap-3">
+                          {currentUser && post.author_id !== currentUser.id && (
+                            <button
+                              onClick={() => toggleFollow(post.author_id)}
+                              className={`text-xs font-bold px-3 py-1 rounded-full border transition ${myFollowing.includes(post.author_id) ? 'bg-[#f3e5ab] text-black border-[#f3e5ab]' : 'text-[#f3e5ab] border-[#f3e5ab]/50 hover:bg-[#f3e5ab]/20'}`}
+                            >
+                              {myFollowing.includes(post.author_id) ? 'Siguiendo ✓' : '+ Seguir'}
+                            </button>
+                          )}
+                          <span className="text-xs text-gray-500">{new Date(post.created_at).toLocaleDateString()}</span>
+                        </div>
                       </div>
 
                       <p className="text-gray-200 text-base leading-relaxed">{post.content}</p>
@@ -2160,7 +2365,7 @@ function App() {
                   ))
                 ) : (
                   <div className="text-center py-16 bg-black/60 rounded-3xl border border-white/10">
-                    <p className="text-gray-400 text-sm">No hay publicaciones recientes en el feed.</p>
+                    <p className="text-gray-400 text-sm">{feedFilter === 'following' ? 'Todavía no seguís a nadie, o los artistas que seguís no tienen publicaciones. Tocá el nombre de un artista para ver su perfil.' : 'No hay publicaciones recientes en el feed.'}</p>
                   </div>
                 )}
               </div>

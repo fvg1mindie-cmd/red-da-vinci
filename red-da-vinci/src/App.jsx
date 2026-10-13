@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Eye, EyeOff, X, Plus, ChevronLeft, ChevronRight, RotateCw, RotateCcw, Check, Pencil, Heart, MessageCircle, Camera, Flag } from 'lucide-react';
+import { Eye, EyeOff, X, Plus, ChevronLeft, ChevronRight, RotateCw, RotateCcw, Check, Pencil, Heart, MessageCircle, Camera, Flag, Share2 } from 'lucide-react';
 import { supabase } from './supabaseClient';
 import { LEVELS, REGLAMENTO } from './reglamentoData';
 
@@ -112,6 +112,14 @@ function App() {
   const [savingNewPassword, setSavingNewPassword] = useState(false);
   const [myFollowing, setMyFollowing] = useState([]);
   const [feedFilter, setFeedFilter] = useState('all');
+  const [sharedPostId] = useState(() => {
+    try { return new URLSearchParams(window.location.search).get('obra'); } catch { return null; }
+  });
+  const [sharedOpen, setSharedOpen] = useState(true);
+  const [sharedPost, setSharedPost] = useState(null);
+  const [sharedLoading, setSharedLoading] = useState(() => {
+    try { return !!new URLSearchParams(window.location.search).get('obra'); } catch { return false; }
+  });
   const [viewedProfile, setViewedProfile] = useState(null);
   const [viewedPosts, setViewedPosts] = useState([]);
   const [viewedStats, setViewedStats] = useState({ followers: 0, following: 0 });
@@ -216,6 +224,44 @@ function App() {
   useEffect(() => {
     if (currentUser?.is_admin) loadAdminData();
   }, [currentUser, activeTab]);
+
+  useEffect(() => {
+    if (!sharedPostId) return;
+    (async () => {
+      const { data, error } = await supabase
+        .from('posts')
+        .select('*, profiles(name, username, curated, avatar_url, level), works(*), likes(user_id), comments(id, content, created_at, author_id, profiles(name, username))')
+        .eq('id', sharedPostId)
+        .eq('status', 'approved')
+        .maybeSingle();
+      if (!error && data) setSharedPost(data);
+      setSharedLoading(false);
+    })();
+  }, [sharedPostId]);
+
+  const closeSharedPost = () => {
+    setSharedOpen(false);
+    window.history.replaceState({}, '', window.location.pathname);
+  };
+
+  const handleSharePost = async (post) => {
+    const url = `${window.location.origin}/?obra=${post.id}`;
+    const title = `${post.profiles?.name || 'Artista'} en Red Da Vinci`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title, text: (post.content || '').slice(0, 100), url });
+        return;
+      }
+    } catch (e) {
+      if (e && e.name === 'AbortError') return;
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      alert('Enlace copiado. Ya podés pegarlo en WhatsApp o Instagram.');
+    } catch {
+      window.prompt('Copiá este enlace:', url);
+    }
+  };
 
   const loadPosts = async () => {
     const { data, error } = await supabase
@@ -1111,6 +1157,154 @@ function App() {
   };
 
   const visiblePosts = feedFilter === 'following' && currentUser ? posts.filter(p => myFollowing.includes(p.author_id)) : posts;
+
+  const sharedShown = posts.find(p => p.id === sharedPostId) || sharedPost;
+
+  const renderPostCard = (post) => (
+        <div key={post.id} id={`obra-${post.id}`} className="bg-black/80 backdrop-blur-md p-6 rounded-3xl border border-[#f3e5ab]/30 shadow-2xl space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3 cursor-pointer" onClick={() => openUserProfile(post.author_id)} title="Ver perfil">
+              {renderAvatar(post.profiles?.avatar_url, post.profiles?.name, 'w-11 h-11', 'text-base')}
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h4 className="font-bold text-[#f3e5ab] text-base">{post.profiles?.name || 'Artista'}</h4>
+                  {renderLevelBadge(post.profiles?.level)}
+                </div>
+                <p className="text-xs text-gray-400">@{post.profiles?.username || 'artista'}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              {currentUser && post.author_id !== currentUser.id && (
+                <button
+                  onClick={() => toggleFollow(post.author_id)}
+                  className={`text-xs font-bold px-3 py-1 rounded-full border transition ${myFollowing.includes(post.author_id) ? 'bg-[#f3e5ab] text-black border-[#f3e5ab]' : 'text-[#f3e5ab] border-[#f3e5ab]/50 hover:bg-[#f3e5ab]/20'}`}
+                >
+                  {myFollowing.includes(post.author_id) ? 'Siguiendo ✓' : '+ Seguir'}
+                </button>
+              )}
+              <span className="text-xs text-gray-500">{new Date(post.created_at).toLocaleDateString()}</span>
+            </div>
+          </div>
+
+          <p className="text-gray-200 text-base leading-relaxed">{post.content}</p>
+
+          {(() => {
+            const images = (post.media_urls && post.media_urls.length > 0)
+              ? post.media_urls
+              : (post.works?.image_url ? [post.works.image_url] : []);
+            if (images.length === 0) return null;
+            const idx = carouselIndexByPost[post.id] || 0;
+            const current = images[idx] || images[0];
+            return (
+              <div className="relative rounded-2xl overflow-hidden bg-black border border-white/10 group">
+                <div className="w-full cursor-zoom-in" onClick={() => openLightbox(images, idx)}>
+                  {isVideo(current) ? (
+                    <video src={current} className="w-full max-h-[65vh] object-contain bg-black" controls onClick={(e) => e.stopPropagation()} />
+                  ) : (
+                    <img src={current} alt="Obra" className="w-full max-h-[65vh] object-contain bg-black" />
+                  )}
+                </div>
+                {images.length > 1 && (
+                  <>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setCarouselIndexByPost(prev => ({ ...prev, [post.id]: (idx - 1 + images.length) % images.length })); }}
+                      className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/60 border border-white/20 p-2 rounded-full text-white opacity-0 group-hover:opacity-100 transition hover:bg-[#f3e5ab] hover:text-black"
+                    >
+                      <ChevronLeft size={20} />
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setCarouselIndexByPost(prev => ({ ...prev, [post.id]: (idx + 1) % images.length })); }}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/60 border border-white/20 p-2 rounded-full text-white opacity-0 group-hover:opacity-100 transition hover:bg-[#f3e5ab] hover:text-black"
+                    >
+                      <ChevronRight size={20} />
+                    </button>
+                    <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-1.5">
+                      {images.map((_, i) => (
+                        <div key={i} className={`w-1.5 h-1.5 rounded-full ${idx === i ? 'bg-[#f3e5ab]' : 'bg-white/40'}`} />
+                      ))}
+                    </div>
+                    <span className="absolute top-3 right-3 bg-black/70 text-white text-xs px-2 py-1 rounded-full font-bold">
+                      {idx + 1}/{images.length}
+                    </span>
+                  </>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* Barra de me gusta y comentarios */}
+          <div className="flex items-center gap-6 pt-1 border-t border-white/10">
+            <button
+              onClick={() => handleToggleLike(post)}
+              className={`flex items-center gap-2 text-sm font-bold transition ${isLikedByMe(post) ? 'text-red-400' : 'text-gray-300 hover:text-red-400'}`}
+            >
+              <Heart size={18} fill={isLikedByMe(post) ? 'currentColor' : 'none'} />
+              {(post.likes || []).length}
+            </button>
+            <button
+              onClick={() => toggleComments(post.id)}
+              className="flex items-center gap-2 text-sm font-bold text-gray-300 hover:text-[#f3e5ab] transition"
+            >
+              <MessageCircle size={18} />
+              {(post.comments || []).length}
+            </button>
+            <button
+              onClick={() => handleSharePost(post)}
+              className="flex items-center gap-2 text-sm font-bold text-gray-300 hover:text-[#f3e5ab] transition"
+              title="Compartir esta obra"
+            >
+              <Share2 size={18} /> Compartir
+            </button>
+            {currentUser && post.author_id !== currentUser.id && (
+              <button
+                onClick={() => openReport(post)}
+                className="ml-auto flex items-center gap-1.5 text-xs font-bold text-gray-500 hover:text-red-400 transition"
+                title="Denunciar publicación"
+              >
+                <Flag size={15} /> Denunciar
+              </button>
+            )}
+          </div>
+
+          {openComments[post.id] && (
+            <div className="pt-3 space-y-3 border-t border-white/10">
+              {(post.comments || [])
+                .slice()
+                .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+                .map((c) => (
+                  <div key={c.id} className="text-sm">
+                    <span className="font-bold text-[#f3e5ab]">{c.profiles?.name || 'Usuario'}</span>{' '}
+                    <span className="text-gray-300">{c.content}</span>
+                  </div>
+                ))}
+              {(post.comments || []).length === 0 && (
+                <p className="text-xs text-gray-500">Todavía no hay comentarios. Sé el primero.</p>
+              )}
+              {currentUser ? (
+                <div className="flex gap-2 pt-1">
+                  <input
+                    type="text"
+                    value={commentInputs[post.id] || ''}
+                    onChange={(e) => setCommentInputs(prev => ({ ...prev, [post.id]: e.target.value }))}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleAddComment(post.id); }}
+                    placeholder="Escribí un comentario..."
+                    className="flex-1 bg-black/50 border border-white/20 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-[#f3e5ab]"
+                  />
+                  <button
+                    onClick={() => handleAddComment(post.id)}
+                    className="bg-[#f3e5ab] text-black font-bold px-3 py-2 rounded-lg text-xs hover:bg-white transition"
+                  >
+                    Enviar
+                  </button>
+                </div>
+              ) : (
+                <p className="text-xs text-gray-500">Iniciá sesión para comentar.</p>
+              )}
+            </div>
+          )}
+        </div>
+  );
+
 
   if (authLoading) {
     return (
@@ -2225,144 +2419,21 @@ function App() {
               )}
 
               <div className="space-y-6">
-                {visiblePosts.length > 0 ? (
-                  visiblePosts.map((post) => (
-                    <div key={post.id} className="bg-black/80 backdrop-blur-md p-6 rounded-3xl border border-[#f3e5ab]/30 shadow-2xl space-y-4">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3 cursor-pointer" onClick={() => openUserProfile(post.author_id)} title="Ver perfil">
-                          {renderAvatar(post.profiles?.avatar_url, post.profiles?.name, 'w-11 h-11', 'text-base')}
-                          <div>
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <h4 className="font-bold text-[#f3e5ab] text-base">{post.profiles?.name || 'Artista'}</h4>
-                              {renderLevelBadge(post.profiles?.level)}
-                            </div>
-                            <p className="text-xs text-gray-400">@{post.profiles?.username || 'artista'}</p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          {currentUser && post.author_id !== currentUser.id && (
-                            <button
-                              onClick={() => toggleFollow(post.author_id)}
-                              className={`text-xs font-bold px-3 py-1 rounded-full border transition ${myFollowing.includes(post.author_id) ? 'bg-[#f3e5ab] text-black border-[#f3e5ab]' : 'text-[#f3e5ab] border-[#f3e5ab]/50 hover:bg-[#f3e5ab]/20'}`}
-                            >
-                              {myFollowing.includes(post.author_id) ? 'Siguiendo ✓' : '+ Seguir'}
-                            </button>
-                          )}
-                          <span className="text-xs text-gray-500">{new Date(post.created_at).toLocaleDateString()}</span>
-                        </div>
-                      </div>
-
-                      <p className="text-gray-200 text-base leading-relaxed">{post.content}</p>
-
-                      {(() => {
-                        const images = (post.media_urls && post.media_urls.length > 0)
-                          ? post.media_urls
-                          : (post.works?.image_url ? [post.works.image_url] : []);
-                        if (images.length === 0) return null;
-                        const idx = carouselIndexByPost[post.id] || 0;
-                        const current = images[idx] || images[0];
-                        return (
-                          <div className="relative rounded-2xl overflow-hidden bg-black border border-white/10 group">
-                            <div className="w-full cursor-zoom-in" onClick={() => openLightbox(images, idx)}>
-                              {isVideo(current) ? (
-                                <video src={current} className="w-full max-h-[65vh] object-contain bg-black" controls onClick={(e) => e.stopPropagation()} />
-                              ) : (
-                                <img src={current} alt="Obra" className="w-full max-h-[65vh] object-contain bg-black" />
-                              )}
-                            </div>
-                            {images.length > 1 && (
-                              <>
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); setCarouselIndexByPost(prev => ({ ...prev, [post.id]: (idx - 1 + images.length) % images.length })); }}
-                                  className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/60 border border-white/20 p-2 rounded-full text-white opacity-0 group-hover:opacity-100 transition hover:bg-[#f3e5ab] hover:text-black"
-                                >
-                                  <ChevronLeft size={20} />
-                                </button>
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); setCarouselIndexByPost(prev => ({ ...prev, [post.id]: (idx + 1) % images.length })); }}
-                                  className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/60 border border-white/20 p-2 rounded-full text-white opacity-0 group-hover:opacity-100 transition hover:bg-[#f3e5ab] hover:text-black"
-                                >
-                                  <ChevronRight size={20} />
-                                </button>
-                                <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-1.5">
-                                  {images.map((_, i) => (
-                                    <div key={i} className={`w-1.5 h-1.5 rounded-full ${idx === i ? 'bg-[#f3e5ab]' : 'bg-white/40'}`} />
-                                  ))}
-                                </div>
-                                <span className="absolute top-3 right-3 bg-black/70 text-white text-xs px-2 py-1 rounded-full font-bold">
-                                  {idx + 1}/{images.length}
-                                </span>
-                              </>
-                            )}
-                          </div>
-                        );
-                      })()}
-
-                      {/* Barra de me gusta y comentarios */}
-                      <div className="flex items-center gap-6 pt-1 border-t border-white/10">
-                        <button
-                          onClick={() => handleToggleLike(post)}
-                          className={`flex items-center gap-2 text-sm font-bold transition ${isLikedByMe(post) ? 'text-red-400' : 'text-gray-300 hover:text-red-400'}`}
-                        >
-                          <Heart size={18} fill={isLikedByMe(post) ? 'currentColor' : 'none'} />
-                          {(post.likes || []).length}
-                        </button>
-                        <button
-                          onClick={() => toggleComments(post.id)}
-                          className="flex items-center gap-2 text-sm font-bold text-gray-300 hover:text-[#f3e5ab] transition"
-                        >
-                          <MessageCircle size={18} />
-                          {(post.comments || []).length}
-                        </button>
-                        {currentUser && post.author_id !== currentUser.id && (
-                          <button
-                            onClick={() => openReport(post)}
-                            className="ml-auto flex items-center gap-1.5 text-xs font-bold text-gray-500 hover:text-red-400 transition"
-                            title="Denunciar publicación"
-                          >
-                            <Flag size={15} /> Denunciar
-                          </button>
-                        )}
-                      </div>
-
-                      {openComments[post.id] && (
-                        <div className="pt-3 space-y-3 border-t border-white/10">
-                          {(post.comments || [])
-                            .slice()
-                            .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
-                            .map((c) => (
-                              <div key={c.id} className="text-sm">
-                                <span className="font-bold text-[#f3e5ab]">{c.profiles?.name || 'Usuario'}</span>{' '}
-                                <span className="text-gray-300">{c.content}</span>
-                              </div>
-                            ))}
-                          {(post.comments || []).length === 0 && (
-                            <p className="text-xs text-gray-500">Todavía no hay comentarios. Sé el primero.</p>
-                          )}
-                          {currentUser ? (
-                            <div className="flex gap-2 pt-1">
-                              <input
-                                type="text"
-                                value={commentInputs[post.id] || ''}
-                                onChange={(e) => setCommentInputs(prev => ({ ...prev, [post.id]: e.target.value }))}
-                                onKeyDown={(e) => { if (e.key === 'Enter') handleAddComment(post.id); }}
-                                placeholder="Escribí un comentario..."
-                                className="flex-1 bg-black/50 border border-white/20 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-[#f3e5ab]"
-                              />
-                              <button
-                                onClick={() => handleAddComment(post.id)}
-                                className="bg-[#f3e5ab] text-black font-bold px-3 py-2 rounded-lg text-xs hover:bg-white transition"
-                              >
-                                Enviar
-                              </button>
-                            </div>
-                          ) : (
-                            <p className="text-xs text-gray-500">Iniciá sesión para comentar.</p>
-                          )}
-                        </div>
-                      )}
+                {sharedPostId && sharedOpen && (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between bg-[#f3e5ab]/10 border border-[#f3e5ab]/40 rounded-2xl px-4 py-2">
+                      <span className="text-xs font-bold text-[#f3e5ab]">Obra compartida contigo</span>
+                      <button onClick={closeSharedPost} className="text-xs font-bold text-gray-300 hover:text-white">Cerrar ✕</button>
                     </div>
-                  ))
+                    {sharedShown ? renderPostCard(sharedShown) : (
+                      <div className="text-center py-10 bg-black/60 rounded-3xl border border-white/10">
+                        <p className="text-gray-400 text-sm">{sharedLoading ? 'Cargando la obra...' : 'Esta obra ya no está disponible o todavía no fue aprobada.'}</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {visiblePosts.length > 0 ? (
+                  visiblePosts.filter(p => !(sharedPostId && sharedOpen && p.id === sharedPostId)).map((post) => renderPostCard(post))
                 ) : (
                   <div className="text-center py-16 bg-black/60 rounded-3xl border border-white/10">
                     <p className="text-gray-400 text-sm">{feedFilter === 'following' ? 'Todavía no seguís a nadie, o los artistas que seguís no tienen publicaciones. Tocá el nombre de un artista para ver su perfil.' : 'No hay publicaciones recientes en el feed.'}</p>
